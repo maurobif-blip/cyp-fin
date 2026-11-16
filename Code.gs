@@ -7,7 +7,7 @@ var FIN_ROLES = ['head', 'director', 'accountant', 'viewer'];
 var FIN_TZ_MINUTES = 120; /* Zambia, UTC+2 */
 
 function finNewDb() {
-  return { v: 1, rev: 0, seq: 0, users: [], requests: [], deadlines: [],
+  return { v: 1, rev: 0, seq: 0, users: [], requests: [], deadlines: [], comments: [],
     settings: { rev: 0, noticeDays: 5, approvalDay: 4, countFrom: '2026-12-01', weeks: {} }, opIds: [] };
 }
 
@@ -50,6 +50,11 @@ function finSeesAll(u) { return u.role === 'director' || u.role === 'accountant'
 function finSeesRequest(u, r) { return finSeesAll(u) || finHasSection(u, r.section) || r.by === u.id; }
 function finCanAskFor(u, code) { return finHasSection(u, code) || u.role === 'accountant'; }
 function finCanDeadline(u, code) { return u.role === 'director' || u.role === 'accountant' || !!u.admin || finHasSection(u, code); }
+/* a comment on the app itself: which screen, which word, what the person says */
+function finCommentRec(d, nowIso, by, byName, demo) {
+  return { id: String(d.id), time: nowIso, by: by, byName: byName, demo: !!demo, page: finText(d.page, 40), target: finText(d.target, 160), text: finText(d.text, 600),
+    version: finText(d.version, 20), phone: !!d.phone, done: false, doneBy: '', doneAt: '' };
+}
 function finText(x, max) { return String(x == null ? '' : x).replace(/\s+/g, ' ').trim().slice(0, max || 200); }
 
 /* ---- one change. Returns {ok:true} or {ok:false, error:'...'}; "info" collects what the store must write ---- */
@@ -154,6 +159,26 @@ function finApply(db, u, op, nowIso, store, info) {
     return { ok: true };
   }
 
+  if (t === 'comment_new') {
+    if (!db.comments) db.comments = [];
+    if (!d.id || finFind(db.comments, d.id)) return fail('id');
+    if (!finText(d.text)) return fail('comment');
+    if (db.comments.length >= 3000) return fail('full');
+    x = finCommentRec(d, nowIso, u.id, u.name, false);
+    db.comments.push(x); bump(x);
+    if (info) { info.comments.push(x); }
+    audit('Comment on the app', x.page + ': ' + x.text.slice(0, 80));
+    return { ok: true };
+  }
+  if (t === 'comment_done') {
+    if (!u.admin) return fail('role');
+    x = finFind(db.comments || [], d.id);
+    if (!x) return fail('id');
+    x.done = d.done !== false; x.doneBy = x.done ? u.name : ''; x.doneAt = x.done ? nowIso : '';
+    bump(x); if (info) info.comments.push(x);
+    return { ok: true };
+  }
+
   /* everything below changes one request */
   r = finFind(db.requests, d.id);
   if (!r) return fail('id');
@@ -222,6 +247,19 @@ function finHandle(req, store) {
     return { ok: true, users: pub() };
   }
 
+  if (!db.comments) db.comments = [];
+  /* a comment from the demo: the link is enough, the person writes a name */
+  if (a === 'comment') {
+    var who = finText(req.name, 60);
+    if (!req.id || !who || !finText(req.text)) return { ok: false, error: 'fields' };
+    if (finFind(db.comments, req.id)) return { ok: true, again: true };
+    if (db.comments.length >= 3000) return { ok: false, error: 'full' };
+    var cm = finCommentRec(req, now, '', who, true);
+    db.rev++; cm.rev = db.rev; db.comments.push(cm);
+    store.save(db, { requests: [], comments: [cm], audit: [{ time: now, user: who + ' (demo)', action: 'Comment on the app', no: '', detail: cm.page + ': ' + cm.text.slice(0, 80) }] });
+    return { ok: true };
+  }
+
   var u = finFind(db.users, req.user);
   if (!u || u.active === false) return { ok: false, error: 'user' };
   if (u.lockUntil && now < u.lockUntil) return { ok: false, error: 'locked', until: u.lockUntil };
@@ -244,7 +282,7 @@ function finHandle(req, store) {
   }
   if (a !== 'sync') return { ok: false, error: 'action' };
 
-  var results = [], info = { requests: [], audit: [] }, ops = req.ops || [];
+  var results = [], info = { requests: [], audit: [], comments: [] }, ops = req.ops || [];
   for (i = 0; i < ops.length; i++) {
     var op = ops[i];
     if (!op || !op.id) { results.push({ id: '', ok: false, error: 'op' }); continue; }
@@ -260,13 +298,16 @@ function finHandle(req, store) {
 
   var since = Number(req.since) || 0, full = since === 0 || (u.rev || 0) > since, out = { ok: true, results: results, rev: db.rev, full: full, now: now, me: finPublicUser(u) };
   if (full) since = 0;
-  out.users = []; out.requests = []; out.deadlines = [];
+  out.users = []; out.requests = []; out.deadlines = []; out.comments = [];
   for (i = 0; i < db.users.length; i++) if ((db.users[i].rev || 0) > since) out.users.push(finPublicUser(db.users[i]));
   for (i = 0; i < db.requests.length; i++) if (db.requests[i].rev > since && finSeesRequest(u, db.requests[i])) out.requests.push(db.requests[i]);
   for (i = 0; i < db.deadlines.length; i++) if (db.deadlines[i].rev > since && (finSeesAll(u) || finHasSection(u, db.deadlines[i].section))) out.deadlines.push(db.deadlines[i]);
+  /* the administrator reads all the comments; the others get back their own */
+  for (i = 0; i < db.comments.length; i++) if (db.comments[i].rev > since && (u.admin || db.comments[i].by === u.id)) out.comments.push(db.comments[i]);
   if ((db.settings.rev || 0) > since || full) out.settings = db.settings;
   return out;
 }
+
 
 /* ===== Google side: a Google Sheet shows the requests and the log; Drive holds the database file and the photos =====
    How to install: open the Google Sheet "CYP FIN database" > Extensions > Apps Script > paste this whole file > Save.
@@ -276,6 +317,7 @@ var SHEET_ID = ''; /* leave empty when the script is opened from inside the Shee
 var DB_FILE = 'cyp-fin-database.json';
 var REQ_HEAD = ['No', 'Sent', 'Section', 'What', 'Amount (K)', 'Budget line', 'Line name', 'Priority', 'Needed', 'Notice (working days)', 'Emergency', 'Reason', 'Pay by', 'Status', 'Asked by', 'Decided by', 'Decided at', 'Note', 'Paid by', 'Paid at', 'Receipt', 'Quotation photo', 'Receipt photo', 'Id'];
 var LOG_HEAD = ['Time', 'Who', 'Action', 'Request', 'Detail'];
+var COM_HEAD = ['Time', 'Who', 'From the demo', 'Screen', 'Word or place', 'Comment', 'Version', 'Phone', 'Done', 'Done by', 'Id'];
 var BOOK_ = null;
 function props_() { return PropertiesService.getScriptProperties(); }
 function book_() { if (!BOOK_) BOOK_ = SHEET_ID ? SpreadsheetApp.openById(SHEET_ID) : SpreadsheetApp.getActiveSpreadsheet(); return BOOK_; }
@@ -302,6 +344,18 @@ function mirror_(list) {
     sh.getRange(row, 1, 1, REQ_HEAD.length).setValues([[r.no, r.created, r.section, r.what, r.amount, r.line, r.lineName, r.prio, r.needed, r.notice, r.emergency ? 'EMERGENCY' : '', r.emergency ? r.reason + ': ' + r.why : '', r.pay === 'cash' ? 'Cash' : 'Bank or mobile money', r.status, r.byName, r.decidedBy, when_(r.decidedAt), r.note, r.paidBy, when_(r.paidAt), r.receipt ? 'Yes' : (r.status === 'Paid' ? 'MISSING' : ''), fileLink_(r.quoteFile), fileLink_(r.receiptFile), r.id]]);
   }
 }
+function comments_(list) {
+  if (!list.length) return;
+  var sh = sheet_('comments', COM_HEAD), idCol = COM_HEAD.length;
+  for (var i = 0; i < list.length; i++) {
+    var c = list[i], row = 0, last = sh.getLastRow();
+    if (last > 1) { var hit = sh.getRange(2, idCol, last - 1, 1).createTextFinder(c.id).matchEntireCell(true).findNext(); if (hit) row = hit.getRow(); }
+    if (!row) row = last + 1;
+    /* a text that starts with = + - @ would be read as a formula: keep it as text */
+    var safe = function (t) { t = String(t || ''); return /^[=+\-@]/.test(t) ? "'" + t : t; };
+    sh.getRange(row, 1, 1, COM_HEAD.length).setValues([[when_(c.time), safe(c.byName), c.demo ? 'Demo' : '', safe(c.page), safe(c.target), safe(c.text), safe(c.version), c.phone ? 'Phone' : 'Computer', c.done ? 'Done' : '', safe(c.doneBy), c.id]]);
+  }
+}
 function audit_(list) {
   if (!list.length) return;
   var sh = sheet_('log', LOG_HEAD), rows = [];
@@ -319,7 +373,7 @@ function store_() {
       if (id) DriveApp.getFileById(id).setContent(text); else P.setProperty('dbId', f.createFile(DB_FILE, text, 'application/json').getId());
       var day = new Date().toISOString().slice(0, 10);
       if (P.getProperty('backupDay') !== day) { f.createFile('cyp-fin-backup-' + day + '.json', text, 'application/json'); P.setProperty('backupDay', day); }
-      if (info) { mirror_(info.requests || []); audit_(info.audit || []); }
+      if (info) { mirror_(info.requests || []); audit_(info.audit || []); comments_(info.comments || []); }
     },
     saveFile: function (name, mime, b64) { return photos_().createFile(Utilities.newBlob(Utilities.base64Decode(b64), mime, name + '.jpg')).getId(); },
     getFile: function (id) { var b = DriveApp.getFileById(id).getBlob(); return { mime: b.getContentType(), b64: Utilities.base64Encode(b.getBytes()) }; }
@@ -339,7 +393,7 @@ function doPost(e) {
 function doGet(e) { return ContentService.createTextOutput('CYP FIN shared database'); }
 /* Run once from the editor: prepares the sheets, the photo folder and the key. */
 function setup() {
-  sheet_('requests', REQ_HEAD); sheet_('log', LOG_HEAD); photos_();
+  sheet_('requests', REQ_HEAD); sheet_('log', LOG_HEAD); sheet_('comments', COM_HEAD); photos_();
   if (!props_().getProperty('key')) props_().setProperty('key', (Utilities.getUuid() + Utilities.getUuid()).replace(/-/g, ''));
   Logger.log('Ready. Now: Deploy > New deployment > Web app > Execute as: Me > Who has access: Anyone. Then write the web app URL in WEB_APP_URL and run the function "link".');
 }
