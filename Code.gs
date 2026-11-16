@@ -8,7 +8,7 @@ var FIN_TZ_MINUTES = 120; /* Zambia, UTC+2 */
 
 function finNewDb() {
   return { v: 1, rev: 0, seq: 0, users: [], requests: [], deadlines: [], comments: [],
-    settings: { rev: 0, noticeDays: 5, approvalDay: 4, countFrom: '2026-12-01', weeks: {}, weeksExp: {}, weeksDate: {} }, opIds: [] };
+    settings: { rev: 0, noticeDays: 5, approvalDay: 4, countFrom: '2026-12-01', weeks: {}, weeksExp: {}, weeksDate: {}, plan: {}, monthly: ['SCH', 'FAM'] }, opIds: [] };
 }
 
 /* ---- dates: plain yyyy-mm-dd strings, no time zones inside ---- */
@@ -56,6 +56,19 @@ function finCommentRec(d, nowIso, by, byName, demo) {
   return { id: String(d.id), time: nowIso, by: by, byName: byName, demo: !!demo, page: finText(d.page, 40), target: finText(d.target, 160), text: finText(d.text, 600),
     version: finText(d.version, 20), phone: !!d.phone, done: false, doneBy: '', doneAt: '' };
 }
+/* the lines of a monthly request: budget line, name, amount */
+function finItems(list) {
+  if (!list || !list.length || list.length > 80) return null;
+  var out = [], sum = 0;
+  for (var i = 0; i < list.length; i++) {
+    var a = Number(list[i].amount);
+    if (!list[i].line || !(a > 0) || a > 100000000) return null;
+    a = Math.round(a * 100) / 100; sum += a;
+    out.push({ line: String(list[i].line), lineName: finText(list[i].lineName, 120), amount: a });
+  }
+  return { items: out, sum: Math.round(sum * 100) / 100 };
+}
+function finMonthlySecs(s) { return s.monthly || ['SCH', 'FAM']; }
 function finText(x, max) { return String(x == null ? '' : x).replace(/\s+/g, ' ').trim().slice(0, max || 200); }
 
 /* ---- one change. Returns {ok:true} or {ok:false, error:'...'}; "info" collects what the store must write ---- */
@@ -77,7 +90,15 @@ function finApply(db, u, op, nowIso, store, info) {
   if (t === 'req_new') {
     if (!finCanAskFor(u, d.section)) return fail('section');
     if (!d.id || finFind(db.requests, d.id)) return fail('id');
-    var what = finText(d.what, 160), amount = Number(d.amount);
+    var what = finText(d.what, 160), amount = Number(d.amount), bundle = null, month = '';
+    if (d.items) {
+      /* one request for the whole month of a section */
+      month = String(d.month || '');
+      if (!/^\d{4}-\d{2}$/.test(month) || finMonthlySecs(s).indexOf(String(d.section)) < 0) return fail('section');
+      for (var mi = 0; mi < db.requests.length; mi++) if (db.requests[mi].month === month && db.requests[mi].section === String(d.section) && db.requests[mi].status !== 'Cancelled' && db.requests[mi].status !== 'Not approved') return fail('again');
+      bundle = finItems(d.items); if (!bundle) return fail('amount');
+      amount = bundle.sum; d.line = 'monthly'; d.lineName = bundle.items.length + (bundle.items.length === 1 ? ' budget line' : ' budget lines');
+    }
     if (!what) return fail('what');
     if (!(amount > 0) || amount > 100000000) return fail('amount');
     if (!d.line) return fail('line');
@@ -85,13 +106,16 @@ function finApply(db, u, op, nowIso, store, info) {
     if (!finIsDate(d.needed)) return fail('date');
     var created = finIsDate(d.created) && d.created <= today && finDayNum(today) - finDayNum(d.created) <= 30 ? d.created : today;
     var notice = finWorkDays(created, d.needed), emergency = notice < s.noticeDays;
+    /* a planned expense sent by the management is known from the plan: it is not an Emergency */
+    var planKey = finText(d.plan, 60);
+    if (planKey && (u.role === 'accountant' || u.role === 'director')) emergency = false;
     if (emergency && (!finText(d.reason) || !finText(d.why))) return fail('reason');
     db.seq++;
     r = { id: String(d.id), no: 'R' + ('000' + db.seq).slice(-4), section: String(d.section), what: what, amount: Math.round(amount * 100) / 100,
       line: String(d.line), lineName: finText(d.lineName, 120), prio: d.prio, needed: d.needed, pay: d.pay === 'cash' ? 'cash' : 'bank',
       created: created, received: nowIso, notice: notice, emergency: emergency, reason: emergency ? finText(d.reason, 60) : '', why: emergency ? finText(d.why, 200) : '',
       by: u.id, byName: u.name, status: 'Waiting', decidedBy: '', decidedAt: '', note: '', week: '', paidBy: '', paidAt: '',
-      receipt: false, receiptBy: '', receiptAt: '', quoteFile: saveFile(d.photo, 'quotation-' + d.id), receiptFile: '', deadline: d.deadline ? String(d.deadline) : '' };
+      receipt: false, receiptBy: '', receiptAt: '', quoteFile: saveFile(d.photo, 'quotation-' + d.id), receiptFile: '', deadline: d.deadline ? String(d.deadline) : '', plan: planKey, month: month, items: bundle ? bundle.items : null };
     db.requests.push(r);
     touched(r, 'New request', what + ' K' + r.amount + (emergency ? ' EMERGENCY' : ''));
     if (r.deadline) {
@@ -128,6 +152,25 @@ function finApply(db, u, op, nowIso, store, info) {
     if (d.approvalDay != null) { var ad = Math.round(Number(d.approvalDay)); if (!(ad >= 1 && ad <= 5)) return fail('fields'); s.approvalDay = ad; }
     if (d.countFrom != null) { if (!finIsDate(d.countFrom)) return fail('fields'); s.countFrom = d.countFrom; }
     bump(s); audit('Rules changed', JSON.stringify({ noticeDays: s.noticeDays, approvalDay: s.approvalDay, countFrom: s.countFrom }));
+    return { ok: true };
+  }
+  /* the spending plan comes from the budget; here the management changes the rule of one line, or says which sections send a monthly request */
+  if (t === 'plan_set') {
+    if (u.role !== 'accountant' && u.role !== 'director' && !u.admin) return fail('role');
+    if (!s.plan) s.plan = {};
+    if (d.monthly) {
+      if (!d.monthly.length && d.monthly.length !== 0 || d.monthly.length > 40) return fail('fields');
+      s.monthly = d.monthly.map(String); bump(s); audit('Monthly request', s.monthly.join(', ') || 'no section');
+      return { ok: true };
+    }
+    var ln = finText(d.line, 20); if (!ln) return fail('fields');
+    if (d.rule === null) { delete s.plan[ln]; bump(s); audit('Spending plan', ln + ' back to the budget rule'); return { ok: true }; }
+    var q = d.rule || {}, ms = [], k;
+    for (k = 0; k < (q.months || []).length; k++) { var mo = Math.round(Number(q.months[k])); if (!(mo >= 1 && mo <= 12)) return fail('fields'); if (ms.indexOf(mo) < 0) ms.push(mo); }
+    var tm = Math.round(Number(q.times)), am = Number(q.amount);
+    if (['w1', 'w2', 'w3', 'w4', 'spread'].indexOf(q.when) < 0 || !(tm >= 1 && tm <= 8) || !(am >= 0) || am > 100000000 || ['P1', 'P2', 'P3'].indexOf(q.prio) < 0) return fail('fields');
+    s.plan[ln] = { months: ms.sort(function (a, b) { return a - b; }), when: q.when, times: tm, amount: Math.round(am * 100) / 100, prio: q.prio };
+    bump(s); audit('Spending plan', ln + ': ' + ms.length + ' months, ' + q.when + ', ' + tm + ' x K' + s.plan[ln].amount);
     return { ok: true };
   }
   if (t === 'week_money') {
@@ -221,7 +264,8 @@ function finApply(db, u, op, nowIso, store, info) {
   if (t === 'req_edit') {
     if (r.by !== u.id && !finCanAskFor(u, r.section)) return fail('role');
     if (r.status !== 'To revise') return fail('status');
-    var what2 = finText(d.what, 160), amount2 = Number(d.amount);
+    var what2 = finText(d.what, 160), amount2 = Number(d.amount), bundle2 = null;
+    if (r.items) { bundle2 = finItems(d.items); if (!bundle2) return fail('amount'); amount2 = bundle2.sum; d.line = 'monthly'; d.lineName = bundle2.items.length + (bundle2.items.length === 1 ? ' budget line' : ' budget lines'); }
     if (!what2) return fail('what');
     if (!(amount2 > 0) || amount2 > 100000000) return fail('amount');
     if (!d.line) return fail('line');
@@ -230,6 +274,7 @@ function finApply(db, u, op, nowIso, store, info) {
     var notice2 = finWorkDays(r.created, d.needed), em2 = notice2 < s.noticeDays;
     var reason2 = finText(d.reason, 60) || r.reason, why2 = finText(d.why, 200) || r.why;
     if (em2 && (!reason2 || !why2)) return fail('reason');
+    if (bundle2) r.items = bundle2.items;
     r.what = what2; r.amount = Math.round(amount2 * 100) / 100; r.line = String(d.line); r.lineName = finText(d.lineName, 120); r.prio = d.prio; r.needed = d.needed;
     r.pay = d.pay === 'cash' ? 'cash' : 'bank'; r.notice = notice2; r.emergency = em2; r.reason = em2 ? reason2 : ''; r.why = em2 ? why2 : '';
     var q2 = saveFile(d.photo, 'quotation-' + r.id + '-' + ((r.revised || 0) + 1)); if (q2) r.quoteFile = q2;
