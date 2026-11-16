@@ -170,6 +170,8 @@ function finApply(db, u, op, nowIso, store, info) {
     var tm = Math.round(Number(q.times)), am = Number(q.amount);
     if (['w1', 'w2', 'w3', 'w4', 'spread'].indexOf(q.when) < 0 || !(tm >= 1 && tm <= 8) || !(am >= 0) || am > 100000000 || ['P1', 'P2', 'P3'].indexOf(q.prio) < 0) return fail('fields');
     s.plan[ln] = { months: ms.sort(function (a, b) { return a - b; }), when: q.when, times: tm, amount: Math.round(am * 100) / 100, prio: q.prio };
+    /* fixed: paid by the management, the section does not ask for it */
+    if (q.fixed != null) s.plan[ln].fixed = !!q.fixed;
     bump(s); audit('Spending plan', ln + ': ' + ms.length + ' months, ' + q.when + ', ' + tm + ' x K' + s.plan[ln].amount);
     return { ok: true };
   }
