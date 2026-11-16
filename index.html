@@ -1,0 +1,1044 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>CYP FIN</title>
+<meta name="theme-color" content="#0B5FA5">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icons/favicon-48.png">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+<style>
+:root{
+  /* phone first: one column, big targets, system font so it opens without internet */
+  --blue:#0B5FA5; --logo:#0091D5; --ink:#14213D; --muted:#4A5568; --ground:#F4F6FA; --card:#FFFFFF; --line:#D5DBE6; --edge:#7A869A;
+  --em-bg:#FFE9D1; --em-ink:#6B2C00; --em:#B85300; --ok-bg:#DDF2DA; --ok-ink:#14600A; --wait-bg:#E4EBF7; --wait-ink:#1D3F7A;
+  --warn-bg:#FFF4C2; --warn-ink:#5C4400; --bad:#8A160C; --off-bg:#ECECEC; --off-ink:#333333; --demo:#EF7D00;
+  --font:system-ui,-apple-system,"Segoe UI",Roboto,"Noto Sans",Arial,sans-serif;
+}
+*{box-sizing:border-box}
+html,body{height:100%}
+body{margin:0;background:var(--ground);color:var(--ink);font-family:var(--font);font-size:16px;line-height:1.35;-webkit-text-size-adjust:100%}
+button,input,select,textarea{font:inherit;color:inherit}
+button{cursor:pointer}
+:focus-visible{outline:3px solid var(--em);outline-offset:2px}
+h1{margin:0;font-size:22px} h2{margin:8px 0 0;font-size:18px}
+#app{max-width:560px;margin:0 auto;min-height:100%;display:flex;flex-direction:column;background:var(--ground)}
+.demo{background:var(--demo);color:#1A1A1A;font-weight:700;font-size:14px;padding:8px 16px}
+.top{background:var(--card);border-bottom:1px solid var(--line);padding:10px 16px;display:flex;align-items:center;justify-content:space-between;gap:12px;position:sticky;top:0;z-index:5}
+.top .who{font-size:14px;font-weight:700;color:var(--muted);text-align:right}
+.net{font-size:13px;font-weight:700;padding:6px 16px;background:var(--warn-bg);color:var(--warn-ink)}
+.net.bad{background:#FBE3E0;color:var(--bad)}
+main{flex:1 1 auto;padding:16px 16px 96px;display:flex;flex-direction:column;gap:16px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:14px;display:flex;flex-direction:column;gap:8px}
+.card.tap{cursor:pointer}
+.band{background:var(--em-bg);color:var(--em-ink);margin:-14px -14px 0;padding:10px 14px;border-radius:12px 12px 0 0;display:flex;flex-direction:column;gap:2px}
+.row{display:flex;justify-content:space-between;align-items:baseline;gap:12px}
+.wrap{display:flex;flex-wrap:wrap;align-items:center;gap:8px}
+.b{font-weight:700} .s{font-size:14px} .m{color:var(--muted)} .num{font-variant-numeric:tabular-nums}.row>.num{white-space:nowrap}
+.big{font-size:20px;font-weight:700}
+.sec{font-size:14px;font-weight:700;color:var(--blue)}
+.pill{padding:4px 10px;border-radius:999px;font-size:14px;font-weight:700;background:var(--wait-bg);color:var(--wait-ink)}
+.pill.ok{background:var(--ok-bg);color:var(--ok-ink)} .pill.em{background:var(--em-bg);color:var(--em-ink)} .pill.warn{background:var(--warn-bg);color:var(--warn-ink)} .pill.off{background:var(--off-bg);color:var(--off-ink)}
+.tag{padding:2px 8px;border-radius:6px;font-size:14px;font-weight:700;background:var(--ink);color:#fff}
+.btn{min-height:48px;padding:0 14px;border-radius:8px;border:2px solid var(--edge);background:#fff;font-weight:700;display:inline-flex;align-items:center;justify-content:center;gap:8px;text-align:center}
+.btn.pri{background:var(--blue);border-color:var(--blue);color:#fff}
+.btn.em{background:var(--em);border-color:var(--em);color:#fff}
+.btn.on{background:var(--blue);border-color:var(--blue);color:#fff}
+.btn.big{min-height:56px;font-size:18px}
+.btn.full{width:100%}
+.btns{display:flex;gap:8px}.btns>*{flex:1 1 0}
+.field{display:flex;flex-direction:column;gap:6px}
+.field label,.lab{font-weight:700}
+.in{width:100%;min-height:48px;padding:0 12px;border:2px solid var(--edge);border-radius:8px;background:#fff}
+textarea.in{padding:10px 12px;min-height:80px}
+input[type=file].in{padding:10px;border-style:dashed;font-size:14px}
+.box{border-radius:8px;padding:12px;display:flex;flex-direction:column;gap:8px}
+.box.info{background:var(--wait-bg);border:2px solid var(--blue);color:var(--wait-ink);font-weight:700}
+.box.em{background:var(--em-bg);border:2px solid var(--em);color:var(--em-ink)}
+.box.warn{background:var(--warn-bg);border:2px solid #8A6A00;color:var(--warn-ink);font-weight:700}
+.box.ok{background:var(--ok-bg);border:2px solid var(--ok-ink);color:var(--ok-ink);font-weight:700}
+.box.err{background:#fff;border:2px solid #A61B0F;color:var(--bad);font-weight:700}
+.box.plain{background:#fff;border:1px solid var(--line)}
+.bar{display:flex;height:14px;border-radius:4px;overflow:hidden;background:var(--line)}
+.bar>i{display:block;background:var(--blue)} .bar>i.add{background:#7FA3DC} .bar>i.em{background:var(--demo)}
+.bad{color:var(--bad);font-weight:700} .good{color:var(--ok-ink);font-weight:700}
+nav{position:fixed;left:0;right:0;bottom:0;z-index:6;display:flex;justify-content:center;pointer-events:none}
+nav>div{pointer-events:auto;width:100%;max-width:560px;background:#fff;border-top:1px solid var(--line);display:flex;padding-bottom:env(safe-area-inset-bottom)}
+nav button{flex:1 1 0;min-height:62px;padding:4px 2px;border:0;border-top:4px solid #fff;background:#fff;font-size:13px;font-weight:700;color:var(--muted);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px}
+nav button.on{color:var(--blue);border-top-color:var(--blue)}
+svg.ic{width:22px;height:22px;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round;flex-shrink:0}
+.modal{position:fixed;inset:0;z-index:10;background:rgba(20,33,61,.55);display:flex;align-items:flex-end;justify-content:center}
+.sheet{width:100%;max-width:560px;max-height:92%;overflow:auto;background:var(--ground);border-radius:16px 16px 0 0;padding:16px;display:flex;flex-direction:column;gap:14px}
+.list{display:flex;flex-direction:column;gap:10px}
+.user{min-height:60px;justify-content:space-between;text-align:left;width:100%}
+.checks{display:grid;grid-template-columns:1fr 1fr;gap:6px}
+.checks label{display:flex;align-items:center;gap:8px;min-height:40px;font-weight:400}
+.checks input{width:22px;height:22px}
+img.photo{max-width:100%;border-radius:8px;border:1px solid var(--line)}
+.center{align-items:center;text-align:center}
+@media (min-width:700px){body{background:#E7EBF3}#app{box-shadow:0 0 0 1px var(--line)}.modal{align-items:center}.sheet{border-radius:16px}}
+@media (prefers-reduced-motion:no-preference){.btn,nav button{transition:background .12s,color .12s}}
+</style>
+</head>
+<body>
+<div id="app"></div>
+<script src="budget.js"></script>
+<script src="core.js"></script>
+<script>
+'use strict';
+var FIN_VERSION = 'alpha 0.2';
+
+/* ================= small tools ================= */
+function esc(s) { return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]; }); }
+function clone(o) { return o == null ? o : JSON.parse(JSON.stringify(o)); }
+function uid() { var a = new Uint8Array(12); (window.crypto || window.msCrypto).getRandomValues(a); var s = ''; for (var i = 0; i < a.length; i++) s += ('0' + a[i].toString(16)).slice(-2); return s; }
+function nowIso() { return new Date().toISOString(); }
+function today() { return finToday(nowIso()); }
+function money(n) { return 'K ' + (Math.round(Number(n) * 100) / 100).toLocaleString('en-US'); }
+function pct(n, d) { return d > 0 ? Math.round(n / d * 100) : 0; }
+function plural(n, one, many) { return n + ' ' + (n === 1 ? one : many); }
+var WD = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'], WDL = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+var MO = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'], MOL = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
+function day(s) { if (!finIsDate(s)) return ''; return WD[finWeekday(s)] + ' ' + Number(s.slice(8, 10)) + ' ' + MO[Number(s.slice(5, 7)) - 1] + (s.slice(0, 4) !== today().slice(0, 4) ? ' ' + s.slice(0, 4) : ''); }
+function when(iso) { return iso ? day(finToday(iso)) : ''; }
+/* SHA-256 of a plain text (letters and digits only), as hex */
+function sha256(ascii) {
+  function rr(v, a) { return (v >>> a) | (v << (32 - a)); }
+  var mp = Math.pow, maxWord = mp(2, 32), i, j, result = '', words = [], bits = ascii.length * 8;
+  var hash = sha256.h = sha256.h || [], k = sha256.k = sha256.k || [], pc = k.length, comp = {};
+  for (var c = 2; pc < 64; c++) { if (!comp[c]) { for (i = 0; i < 313; i += c) comp[i] = c; hash[pc] = (mp(c, .5) * maxWord) | 0; k[pc++] = (mp(c, 1 / 3) * maxWord) | 0; } }
+  ascii += '\x80'; while (ascii.length % 64 - 56) ascii += '\x00';
+  for (i = 0; i < ascii.length; i++) { j = ascii.charCodeAt(i); if (j >> 8) return ''; words[i >> 2] |= j << ((3 - i) % 4) * 8; }
+  words[words.length] = ((bits / maxWord) | 0); words[words.length] = bits;
+  for (j = 0; j < words.length;) {
+    var w = words.slice(j, j += 16), old = hash; hash = hash.slice(0, 8);
+    for (i = 0; i < 64; i++) {
+      var w15 = w[i - 15], w2 = w[i - 2], a = hash[0], e = hash[4];
+      var t1 = hash[7] + (rr(e, 6) ^ rr(e, 11) ^ rr(e, 25)) + ((e & hash[5]) ^ ((~e) & hash[6])) + k[i] + (w[i] = (i < 16) ? w[i] : (w[i - 16] + (rr(w15, 7) ^ rr(w15, 18) ^ (w15 >>> 3)) + w[i - 7] + (rr(w2, 17) ^ rr(w2, 19) ^ (w2 >>> 10))) | 0);
+      var t2 = (rr(a, 2) ^ rr(a, 13) ^ rr(a, 22)) + ((a & hash[1]) ^ (a & hash[2]) ^ (hash[1] & hash[2]));
+      hash = [(t1 + t2) | 0].concat(hash); hash[4] = (hash[4] + t1) | 0;
+    }
+    for (i = 0; i < 8; i++) hash[i] = (hash[i] + old[i]) | 0;
+  }
+  for (i = 0; i < 8; i++) for (j = 3; j + 1; j--) { var b = (hash[i] >> (j * 8)) & 255; result += ((b < 16) ? '0' : '') + b.toString(16); }
+  return result;
+}
+function credOf(salt, pin) { return sha256(salt + ':' + pin); }
+var IC = {
+  soon: '<rect x="3" y="5" width="18" height="16" rx="2"/><path d="M3 10h18M8 3v4M16 3v4"/>',
+  'new': '<circle cx="12" cy="12" r="9"/><path d="M12 8v8M8 12h8"/>',
+  mine: '<path d="M8 6h12M8 12h12M8 18h12M4 6h.01M4 12h.01M4 18h.01"/>',
+  decide: '<rect x="3" y="3" width="18" height="18" rx="2"/><path d="M8 12l3 3 5-6"/>',
+  dead: '<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>',
+  month: '<path d="M5 20V10M12 20V4M19 20v-7"/>',
+  pay: '<rect x="2" y="6" width="20" height="12" rx="2"/><circle cx="12" cy="12" r="3"/>',
+  rec: '<path d="M6 3h12v18l-3-2-3 2-3-2-3 2zM9 8h6M9 12h6"/>',
+  more: '<path d="M4 6h16M4 12h16M4 18h16"/>',
+  people: '<circle cx="9" cy="8" r="3"/><path d="M3 20c0-3 3-5 6-5s6 2 6 5"/><circle cx="17" cy="9" r="2.5"/><path d="M16 15c3 0 5 2 5 5"/>',
+  rules: '<path d="M4 6h10M18 6h2M4 12h4M12 12h8M4 18h12M20 18h.01"/><circle cx="16" cy="6" r="2"/><circle cx="10" cy="12" r="2"/><circle cx="18" cy="18" r="2"/>',
+  lock: '<rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/>',
+  out: '<path d="M10 4H5v16h5M14 8l4 4-4 4M18 12H9"/>',
+  down: '<path d="M12 4v11M7 11l5 5 5-5M5 20h14"/>',
+  send: '<path d="M4 12l16-8-6 16-3-7z"/>',
+  phone: '<rect x="7" y="2" width="10" height="20" rx="2"/><path d="M11 18h2"/>'
+};
+function ic(n) { return '<svg class="ic" viewBox="0 0 24 24" aria-hidden="true">' + (IC[n] || '') + '</svg>'; }
+var LOGO = '<svg role="img" aria-label="CYP FIN" viewBox="0 0 897 200" style="width:126px;height:28px;display:block;flex-shrink:0"><defs><pattern id="chit" patternUnits="userSpaceOnUse" width="48" height="72"><rect width="48" height="72" fill="#198A00"/><polygon points="0,-18 24,-38 48,-18 48,0 24,-20 0,0" fill="#EF7D00" stroke="#fff" stroke-width="2.5"/><polygon points="0,0 24,-20 48,0 48,18 24,-2 0,18" fill="#198A00" stroke="#fff" stroke-width="2.5"/><polygon points="0,18 24,-2 48,18 48,36 24,16 0,36" fill="#DE2010" stroke="#fff" stroke-width="2.5"/><polygon points="0,36 24,16 48,36 48,54 24,34 0,54" fill="#111" stroke="#fff" stroke-width="2.5"/><polygon points="0,54 24,34 48,54 48,72 24,52 0,72" fill="#EF7D00" stroke="#fff" stroke-width="2.5"/><polygon points="0,72 24,52 48,72 48,90 24,70 0,90" fill="#198A00" stroke="#fff" stroke-width="2.5"/></pattern><clipPath id="cap"><rect width="897" height="200"/></clipPath></defs><g clip-path="url(#cap)" fill="none" stroke-width="46"><g stroke="#0091D5"><path d="M127,52 C110,30 95,23 80,23 C45,23 23,55 23,100 C23,145 45,177 80,177 C95,177 110,170 127,148"/><path d="M155,-10 L228,105 L301,-10"/><path d="M228,105 L228,200"/><path d="M345,200 L345,23 L397,23 C427,23 444,40 444,66 C444,92 427,109 397,109 L345,109"/></g><g stroke="url(#chit)"><path d="M621,23 L534,23 L534,200"/><path d="M534,100 L606,100"/><path d="M676,0 L676,200"/><path d="M754,200 L754,0 L874,200 L874,0"/></g></g></svg>';
+
+/* ================= budget ================= */
+var SEC = {}, LINE = {};
+FIN_BUDGET.sections.forEach(function (s) {
+  var tot = 0;
+  s.lines = s.lines.map(function (l) { var o = { id: l[0], name: l[1], qty: l[2], unit: l[3], freq: l[4], total: l[5], act: l[6] || '', sec: s.code }; LINE[o.id] = o; tot += o.total; return o; });
+  s.total = tot; SEC[s.code] = s;
+});
+function secName(code) { return SEC[code] ? SEC[code].name : code; }
+
+/* ================= what is kept on this phone ================= */
+var KV = (function () {
+  var mem = {}, dbp = null;
+  function open() {
+    if (dbp) return dbp;
+    dbp = new Promise(function (res) {
+      try {
+        var rq = indexedDB.open('cyp-fin', 1);
+        rq.onupgradeneeded = function () { rq.result.createObjectStore('kv'); };
+        rq.onsuccess = function () { res(rq.result); };
+        rq.onerror = function () { res(null); };
+      } catch (e) { res(null); }
+    });
+    return dbp;
+  }
+  return {
+    get: function (k) { return open().then(function (db) { if (!db) return mem[k]; return new Promise(function (res) { try { var r = db.transaction('kv').objectStore('kv').get(k); r.onsuccess = function () { res(r.result); }; r.onerror = function () { res(mem[k]); }; } catch (e) { res(mem[k]); } }); }); },
+    set: function (k, v) { mem[k] = v; return open().then(function (db) { if (!db) return; try { db.transaction('kv', 'readwrite').objectStore('kv').put(v, k); } catch (e) {} }); }
+  };
+})();
+
+var S = { cfg: null, users: [], me: null, cred: '', cache: null, queue: [], verif: {}, online: true, syncing: false, lastSync: '', notices: [], local: null, files: {},
+  ui: { screen: 'boot', tab: '', form: {}, modal: null, m: {}, month: '', pick: null, err: '', msg: '' }, _v: null };
+function emptyCache() { return { users: [], requests: [], deadlines: [], settings: null, since: 0 }; }
+function saveQueue() { KV.set('queue', S.queue); }
+function saveCache() { if (S.me) KV.set('cache:' + S.me.id, S.cache); }
+function myQueue() { return S.queue.filter(function (o) { return S.me && o.user === S.me.id; }); }
+
+/* the database on this phone only (demo, or a first test without Google) */
+var localStore = {
+  key: function () { return 'local'; }, now: nowIso,
+  load: function () { return S.local; },
+  save: function (db) { S.local = db; KV.set('localdb', db); },
+  saveFile: function (name, mime, b64) { var id = 'L' + uid(); S.files[id] = { mime: mime, b64: b64 }; KV.set('localfiles', S.files); return id; },
+  getFile: function (id) { return S.files[id] || null; }
+};
+function call(req) {
+  req.key = S.cfg.key;
+  if (S.cfg.mode !== 'shared') { try { return Promise.resolve(clone(finHandle(req, localStore))); } catch (e) { return Promise.reject(e); } }
+  return fetch(S.cfg.url, { method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' }, body: JSON.stringify(req), redirect: 'follow' }).then(function (r) { return r.json(); });
+}
+
+/* ================= the picture on screen = what the database said + what is still waiting to be sent ================= */
+function V() {
+  if (S._v) return S._v;
+  var c = S.cache || emptyCache();
+  var db = { v: 1, rev: 0, seq: 0, users: clone(c.users), requests: clone(c.requests), deadlines: clone(c.deadlines), settings: clone(c.settings) || finNewDb().settings, opIds: [] };
+  var me = finFind(db.users, S.me.id) || clone(S.me), pend = {}, isNew = {};
+  myQueue().forEach(function (op) {
+    if (op.t === 'req_new') isNew[op.d.id] = 1;
+    try { finApply(db, me, op, op.at || nowIso(), null, null); } catch (e) {}
+    if (op.d && op.d.id) pend[op.d.id] = 1;
+  });
+  db.requests.forEach(function (r) { if (pend[r.id]) r.pending = true; if (isNew[r.id]) r.no = ''; });
+  db.me = me; S._v = db; return db;
+}
+function fresh() { S._v = null; }
+var ERR = { section: 'You cannot do this for that section.', what: 'Write what you need.', amount: 'Write the amount.', line: 'Choose the budget line.', prio: 'Choose the priority.', date: 'Choose the date.',
+  reason: 'Say why it is an Emergency.', role: 'Your role cannot do this.', status: 'This request has changed in the meantime. Look at it again.', fields: 'Something is missing.', id: 'Not found.',
+  pin: 'A PIN is needed.', last_admin: 'At least one administrator must stay.', photo: 'The photo could not be read.', server: 'The database had a problem. Try again.' };
+function errText(e) { return ERR[e] || ('Not accepted (' + e + ').'); }
+/* do one change: check it here first, show it at once, send it when there is internet */
+function act(t, d) {
+  var op = { id: uid(), t: t, d: d, at: nowIso(), user: S.me.id };
+  var v = clone(V()); delete v.me;
+  var res = finApply(v, finFind(v.users, S.me.id) || clone(S.me), op, op.at, null, null);
+  if (!res.ok) return res;
+  S.queue.push(op); saveQueue(); fresh(); sync();
+  return res;
+}
+
+function mergeList(list, items) { items.forEach(function (x) { var i = -1; for (var k = 0; k < list.length; k++) if (list[k].id === x.id) { i = k; break; } if (i < 0) list.push(x); else list[i] = x; }); }
+function sync() {
+  if (S.syncing || !S.me || !S.cfg) return Promise.resolve();
+  S.syncing = true;
+  var ops = myQueue().slice(0, 8), before = S.cache.since + ':' + S.queue.length + ':' + S.online;
+  return call({ action: 'sync', user: S.me.id, cred: S.cred, since: S.cache.since, ops: ops }).then(function (res) {
+    S.online = true;
+    if (!res.ok) {
+      if (res.error === 'pin' || res.error === 'user') { signOut(res.error === 'user' ? 'This person is switched off. Ask the administrator.' : 'The PIN has changed. Sign in again.'); return; }
+      if (res.error === 'key') { S.ui.msg = 'This link is no longer valid. Ask the administrator for the new link.'; }
+      return;
+    }
+    var done = {};
+    (res.results || []).forEach(function (r) { done[r.id] = r; });
+    ops.forEach(function (op) {
+      var r = done[op.id]; if (!r) return;
+      if (!r.ok) S.notices.push(errText(r.error));
+      else if (op.t === 'pin') { S.cred = op.d.cred; remember(); }
+    });
+    S.queue = S.queue.filter(function (o) { return !done[o.id]; }); saveQueue();
+    if (res.full) { S.cache.users = res.users; S.cache.requests = res.requests; S.cache.deadlines = res.deadlines; }
+    else { mergeList(S.cache.users, res.users); mergeList(S.cache.requests, res.requests); mergeList(S.cache.deadlines, res.deadlines); }
+    if (res.settings) S.cache.settings = res.settings;
+    S.cache.since = res.rev; S.lastSync = res.now || nowIso();
+    if (res.me) { S.me = res.me; }
+    S.users = S.cache.users.slice(); KV.set('users', S.users);
+    saveCache(); fresh();
+  }).catch(function () { S.online = false; }).then(function () {
+    S.syncing = false;
+    var after = S.cache ? S.cache.since + ':' + S.queue.length + ':' + S.online : '';
+    if (after !== before || S.notices.length) render();
+    if (S.me && S.online && myQueue().length) setTimeout(sync, 400);
+  });
+}
+function remember() {
+  if (!S.me) return;
+  S.verif[S.me.id] = sha256('v:' + S.cred); KV.set('verif', S.verif);
+  try { sessionStorage.setItem('fin-session', JSON.stringify({ id: S.me.id, cred: S.cred })); } catch (e) {}
+}
+function signOut(msg) {
+  S.me = null; S.cred = ''; S.cache = null; fresh();
+  try { sessionStorage.removeItem('fin-session'); } catch (e) {}
+  S.ui = { screen: 'login', tab: '', form: {}, modal: null, m: {}, month: '', pick: null, err: '', msg: msg || '' };
+  render();
+}
+
+/* ================= numbers used on several screens ================= */
+function counted(r, s) { return (r.status === 'Approved' || r.status === 'Paid') && r.needed >= s.countFrom; }
+function lineUse(id) { var v = V(), sum = 0, n = 0; v.requests.forEach(function (r) { if (r.line === id && counted(r, v.settings)) { sum += r.amount; n++; } }); return { used: sum, times: n }; }
+function sectionUse(code) { var v = V(), sum = 0; v.requests.forEach(function (r) { if (r.section === code && counted(r, v.settings)) sum += r.amount; }); return sum; }
+function planPct(L) { var t = today(); if (L.freq !== 12 || t.slice(0, 4) !== String(FIN_BUDGET.year)) return null; return Math.round(Number(t.slice(5, 7)) / 12 * 100); }
+function emCount(code) { var v = V(), m = today().slice(0, 7), n = 0; v.requests.forEach(function (r) { if (r.section === code && r.emergency && r.created.slice(0, 7) === m && r.status !== 'Cancelled') n++; }); return n; }
+function weekInfo() {
+  var v = V(), wk = finWeekKey(today()), set = v.settings.weeks[wk], used = 0;
+  v.requests.forEach(function (r) { if (r.week === wk && (r.status === 'Approved' || r.status === 'Paid')) used += r.amount; });
+  return { key: wk, set: set != null, money: set || 0, used: used, left: (set || 0) - used };
+}
+function nextApproval() { var v = V(), d = finAddDays(today(), 1), g = 0; while (finWeekday(d) !== v.settings.approvalDay && g < 8) { d = finAddDays(d, 1); g++; } return d; }
+function deadlineView(x) {
+  var v = V(), t = today(), askBy = finAskBy(x.date, v.settings.noticeDays);
+  return { askBy: askBy, late: askBy < t, last: askBy === t };
+}
+function leftText(n) { return n >= 0 ? 'left ' + money(n) : 'short by ' + money(-n); }
+function lineBox(lineId, amount, waiting) {
+  var L = LINE[lineId];
+  if (lineId === 'none') return '<div class="box warn">Not in the budget. The Director sees this.</div>';
+  if (!L) return '';
+  var u = lineUse(lineId), before = u.used, after = before + (waiting ? (amount || 0) : 0), pb = pct(before, L.total), pa = pct(after, L.total), bw = Math.min(100, pb), aw = Math.max(0, Math.min(100 - bw, pa - pb)), plan = planPct(L);
+  var h = '<div class="box plain"><div class="b num">' + esc(L.name) + ' · budget ' + money(L.total) + '</div>';
+  h += '<div class="bar" aria-hidden="true"><i style="width:' + bw + '%"></i><i class="add" style="width:' + aw + '%"></i></div>';
+  h += '<div class="s num">Used now: ' + money(before) + ' (' + pb + '%)</div>';
+  if (waiting) h += '<div class="s b num">' + (amount > 0 ? 'After this request: ' + money(after) + ' (' + pa + '%)' : 'Write the amount to see the line after this request.') + '</div>';
+  if (plan != null) h += '<div class="s num">Plan for this date: ' + plan + '%</div>';
+  if (L.unit > 0) {
+    var b = L.qty === 1 ? plural(L.freq, 'time', 'times') + ' at ' + money(L.unit) : L.freq === 1 ? L.qty + ' at ' + money(L.unit) + ' each' : L.qty + ' at ' + money(L.unit) + ', ' + plural(L.freq, 'time', 'times');
+    h += '<div class="s num">Budget: ' + b + '. Approved so far: ' + plural(u.times, 'time', 'times') + '.</div>';
+    if (waiting && L.qty === 1 && L.freq > 1 && amount > L.unit) h += '<div class="s b num">' + money(amount - L.unit) + ' above one time.</div>';
+    if (waiting && L.qty === 1 && L.freq > 1 && u.times >= L.freq) h += '<div class="s b">More times than in the budget.</div>';
+  }
+  if (L.total > 0 && after > L.total) h += '<div class="bad num">Over the budget line by ' + money(after - L.total) + '</div>';
+  if (L.total === 0) h += '<div class="bad">This line has no money in the budget.</div>';
+  return h + '</div>';
+}
+var PILL = { 'Waiting': ['Waiting for the Director', ''], 'Approved': ['Approved', 'ok'], 'Next week': ['Moved to next week', 'warn'], 'Not approved': ['Not approved', 'off'], 'Paid': ['Paid', 'ok'], 'Cancelled': ['Cancelled', 'off'] };
+function pill(r) { var p = PILL[r.status] || PILL.Waiting; return '<span class="pill ' + p[1] + '">' + p[0] + '</span>'; }
+function payText(r) { return r.pay === 'cash' ? 'Cash' : 'Bank or mobile money'; }
+function reqNo(r) { return r.no ? esc(r.no) : 'Not sent yet'; }
+
+/* ================= screens ================= */
+function roleText(u) {
+  var a = [];
+  if (u.role === 'director') a.push('Director'); if (u.role === 'accountant') a.push('Accountant'); if (u.role === 'viewer') a.push('Can look');
+  if ((u.sections || []).length) a.push((u.role === 'head' ? 'Head: ' : '') + u.sections.map(secName).join(', '));
+  if (u.role === 'head' && !(u.sections || []).length) a.push('Section head');
+  if (u.admin) a.push('Administrator');
+  return a.join(' · ');
+}
+function canAsk() { return S.me && (S.me.sections.length > 0 || S.me.role === 'accountant'); }
+function askSections() { return S.me.role === 'accountant' ? FIN_BUDGET.sections.map(function (s) { return s.code; }) : S.me.sections; }
+function tabsFor() {
+  var r = S.me.role, t = [];
+  if (r === 'director' || r === 'viewer') t = [['decide', 'To decide'], ['dead', 'Deadlines'], ['month', 'By section']];
+  else if (r === 'accountant') t = [['pay', 'To pay'], ['rec', 'Receipts'], ['dead', 'Deadlines'], ['new', 'Ask']];
+  else t = [['soon', 'Coming up'], ['new', 'New request'], ['mine', 'My requests']];
+  if (r === 'director' && canAsk()) t.push(['new', 'Ask']);
+  t.push(['more', 'More']);
+  return t;
+}
+function head() {
+  var h = '';
+  if (S.cfg && S.cfg.mode === 'demo') h += '<div class="demo">Demo: invented data. It stays on this phone.</div>';
+  h += '<div class="top">' + LOGO + '<div class="who">' + (S.me ? esc(S.me.name) : '') + '</div></div>';
+  if (S.me) {
+    var q = myQueue().length;
+    if (!S.online) h += '<div class="net">No internet: saved on this phone' + (q ? ' · ' + q + ' to send' : '') + '</div>';
+    else if (q) h += '<div class="net">Sending ' + q + '...</div>';
+  }
+  if (S.notices.length) h += '<div class="net bad">' + esc(S.notices.join(' ')) + ' <button class="btn" data-a="noticeOk" style="min-height:36px;margin-left:8px">OK</button></div>';
+  return h;
+}
+function nav() {
+  var n = { decide: 0, pay: 0, rec: 0, dead: 0 }, v = V();
+  v.requests.forEach(function (r) { if (r.status === 'Waiting') n.decide++; if (r.status === 'Approved') n.pay++; if (r.status === 'Paid' && !r.receipt) n.rec++; });
+  var iconOf = { soon: 'soon', 'new': 'new', mine: 'mine', decide: 'decide', dead: 'dead', month: 'month', pay: 'pay', rec: 'rec', more: 'more' };
+  return '<nav><div>' + tabsFor().map(function (t) { return '<button type="button" class="' + (S.ui.tab === t[0] ? 'on' : '') + '" data-a="tab" data-id="' + t[0] + '">' + ic(iconOf[t[0]]) + '<span>' + t[1] + (n[t[0]] ? ' (' + n[t[0]] + ')' : '') + '</span></button>'; }).join('') + '</div></nav>';
+}
+function field(label, id, inner, hint) { return '<div class="field"><label for="' + id + '">' + label + '</label>' + (hint ? '<div class="s m">' + hint + '</div>' : '') + inner + '</div>'; }
+function input(id, key, val, type, extra) { return '<input class="in" id="' + id + '" data-f="' + key + '" type="' + (type || 'text') + '" value="' + esc(val == null ? '' : val) + '" ' + (extra || '') + '>'; }
+function options(list, val) { return list.map(function (o) { return '<option value="' + esc(o[0]) + '"' + (String(o[0]) === String(val == null ? '' : val) ? ' selected' : '') + '>' + esc(o[1]) + '</option>'; }).join(''); }
+function lineOptions(code, val) {
+  var s = SEC[code]; if (!s) return '<option value="">Choose the section first</option>';
+  return options([['', 'Choose one']].concat(s.lines.map(function (l) { return [l.id, l.name]; })).concat([['none', 'Not in the budget']]), val);
+}
+
+function scrStart() {
+  return '<main><h1>Open CYP FIN</h1>' +
+    '<div class="card">' + field('Paste the link you received', 'st-link', '<input class="in" id="st-link" data-f="link" value="' + esc(S.ui.form.link || '') + '" autocomplete="off">') +
+    (S.ui.err ? '<div class="box err" role="alert">' + esc(S.ui.err) + '</div>' : '') +
+    '<button type="button" class="btn pri" data-a="connect">Connect</button></div>' +
+    '<div class="card"><div class="b">No link yet?</div><button type="button" class="btn" data-a="demo">Try the demo</button><div class="s m">Invented data. It stays on this phone.</div>' +
+    '<button type="button" class="btn" data-a="localOnly">Use on this phone only</button><div class="s m">For a first test. Other phones will not see it.</div></div>' +
+    '<div class="s m center">CYP FIN ' + FIN_VERSION + '</div></main>';
+}
+function scrFirst() {
+  var f = S.ui.form;
+  return '<main><h1>First administrator</h1><div class="s m">Nobody is in the database yet. The first person adds the others.</div><div class="card">' +
+    field('Your name', 'fa-name', input('fa-name', 'name', f.name)) +
+    field('Your role', 'fa-role', '<select class="in" id="fa-role" data-f="role">' + options([['viewer', 'Can look (administrator only)'], ['director', 'Director'], ['accountant', 'Accountant']], f.role || 'viewer') + '</select>') +
+    field('Choose a PIN', 'fa-pin', input('fa-pin', 'pin', f.pin, 'password', 'inputmode="numeric" autocomplete="new-password"'), '4 to 8 numbers.') +
+    field('Write the PIN again', 'fa-pin2', input('fa-pin2', 'pin2', f.pin2, 'password', 'inputmode="numeric" autocomplete="new-password"')) +
+    (S.ui.err ? '<div class="box err" role="alert">' + esc(S.ui.err) + '</div>' : '') +
+    '<button type="button" class="btn pri big" data-a="firstAdmin">Start</button></div></main>';
+}
+function scrLogin() {
+  var list = S.users.filter(function (u) { return u.active !== false; }).sort(function (a, b) { return a.name < b.name ? -1 : 1; });
+  var h = '<main>';
+  if (S.ui.msg) h += '<div class="box warn">' + esc(S.ui.msg) + '</div>';
+  if (S.ui.pick) {
+    var u = S.ui.pick;
+    h += '<h1>Hello ' + esc(u.name) + '</h1><div class="card">' + field('Your PIN', 'lg-pin', input('lg-pin', 'pin', S.ui.form.pin, 'password', 'inputmode="numeric" autocomplete="off"'), S.cfg.mode === 'demo' ? 'Demo PIN: 1111' : '') +
+      (S.ui.err ? '<div class="box err" role="alert">' + esc(S.ui.err) + '</div>' : '') +
+      '<button type="button" class="btn pri big" data-a="login">Enter</button><button type="button" class="btn" data-a="back">Back</button></div>';
+  } else {
+    h += '<h1>Who are you?</h1>';
+    if (!list.length) h += '<div class="box warn">The list of people is not on this phone yet. Open the app once with internet.</div>';
+    h += '<div class="list">' + list.map(function (x) { return '<button type="button" class="btn user" data-a="pickUser" data-id="' + esc(x.id) + '"><span>' + esc(x.name) + '</span><span class="s m" style="font-weight:400;text-align:right">' + esc(roleText(x)) + '</span></button>'; }).join('') + '</div>';
+    h += '<button type="button" class="btn" data-a="forget">Use another link</button>';
+  }
+  return h + '<div class="s m center">CYP FIN ' + FIN_VERSION + '</div></main>';
+}
+
+function reqCard(r, opt) {
+  opt = opt || {};
+  var h = '<div class="card tap" role="button" tabindex="0" data-a="openReq" data-id="' + esc(r.id) + '">';
+  if (r.emergency && opt.band) h += '<div class="band"><div class="b">Emergency: ' + esc(r.reason) + (r.why ? ': ' + esc(r.why) : '') + '</div><div class="s">' + esc(secName(r.section)) + ': ' + plural(emCount(r.section), 'Emergency request', 'Emergency requests') + ' this month</div></div>';
+  if (opt.sec) h += '<div class="wrap"><span class="sec">' + esc(secName(r.section)) + '</span><span class="tag">' + esc(r.prio) + '</span></div>';
+  h += '<div class="row"><div class="b">' + esc(r.what) + '</div><div class="b num">' + money(r.amount) + '</div></div>';
+  h += '<div class="s m">' + (opt.sec ? '' : esc(r.prio) + ' · ') + 'Needed ' + day(r.needed) + ' · ' + plural(r.notice, 'working day', 'working days') + ' notice · ' + payText(r) + '</div>';
+  if (opt.budget) {
+    h += '<div class="s b ' + (r.quoteFile ? 'm' : 'bad') + '">' + (r.quoteFile ? 'Quotation attached' : 'No quotation') + '</div>';
+    h += lineBox(r.line, r.amount, r.status === 'Waiting' || r.status === 'Next week');
+  } else h += '<div class="s">' + esc(r.lineName || (r.line === 'none' ? 'Not in the budget' : r.line)) + '</div>';
+  if (!opt.nopill) h += '<div class="wrap">' + pill(r) + (r.emergency && !opt.band ? '<span class="pill em">Emergency</span>' : '') + (r.status === 'Paid' && !r.receipt ? '<span class="pill warn">Receipt missing</span>' : '') + (r.pending ? '<span class="pill warn">Not sent yet</span>' : '') + '</div>';
+  if (r.note && (r.status === 'Not approved' || r.status === 'Next week')) h += '<div class="s">Director: ' + esc(r.note) + '</div>';
+  return h + (opt.actions || '') + '</div>';
+}
+
+function scrSoon() {
+  var v = V(), mine = v.deadlines.filter(function (x) { return !x.deleted && !x.asked && S.me.sections.indexOf(x.section) >= 0; }).map(function (x) { x.v = deadlineView(x); return x; }).sort(function (a, b) { return a.v.askBy < b.v.askBy ? -1 : 1; });
+  var h = '<main><h1>Coming up</h1>';
+  if (!mine.length) h += '<div class="s m">No dates yet. Add the ones you already know: matches, exams, fees.</div>';
+  mine.forEach(function (x) {
+    h += '<div class="card">' + (S.me.sections.length > 1 ? '<div class="sec">' + esc(secName(x.section)) + '</div>' : '') + '<div class="row"><div class="b">' + esc(x.what) + '</div><div class="b num">' + money(x.amount) + '</div></div>' +
+      '<div class="s">Needed ' + day(x.date) + (x.repeat ? ' · every month' : '') + '</div>' +
+      '<div class="b' + (x.v.late || x.v.last ? ' bad' : '') + '">' + (x.v.late ? 'Late. You had to ask by ' + day(x.v.askBy) + '.' : x.v.last ? 'Ask today.' : 'Ask by ' + day(x.v.askBy) + '.') + '</div>' +
+      '<div class="btns"><button type="button" class="btn pri" data-a="askNow" data-id="' + esc(x.id) + '">Ask now</button><button type="button" class="btn" data-a="dlEdit" data-id="' + esc(x.id) + '" style="flex:0 0 auto">Change</button></div></div>';
+  });
+  return h + '<button type="button" class="btn" data-a="dlNew">Add a date</button></main>';
+}
+
+function noticeBox() {
+  var f = S.ui.form, v = V();
+  if (!finIsDate(f.needed)) return '';
+  var n = finWorkDays(today(), f.needed), rule = v.settings.noticeDays;
+  if (n >= rule) return '<div class="box info" role="status">' + plural(n, 'working day', 'working days') + ' notice. The Director decides on ' + day(nextApproval()) + '.</div>';
+  var em = emCount(f.section);
+  return '<div class="box em"><div class="b" role="status" id="shorttxt">' + plural(n, 'working day', 'working days') + ' notice. The rule is ' + rule + '.</div><div>Change the date, or send it as Emergency.</div>' +
+    field('Why is it an Emergency?', 'rq-reason', '<select class="in" id="rq-reason" data-f="reason">' + options([['', 'Choose one'], ['Health or safety of a child', 'Health or safety of a child'], ['Breakdown that stops a service', 'Breakdown that stops a service'], ['Other reason', 'Other reason']], f.reason) + '</select>') +
+    field('Explain in a few words', 'rq-why', input('rq-why', 'why', f.why)) +
+    '<div>' + esc(secName(f.section)) + ' has ' + plural(em, 'Emergency request', 'Emergency requests') + ' this month. This will be number ' + (em + 1) + '.</div></div>';
+}
+function isShort() { var f = S.ui.form; return finIsDate(f.needed) && finWorkDays(today(), f.needed) < V().settings.noticeDays; }
+function scrNew() {
+  var f = S.ui.form, secs = askSections();
+  if (!f.section || secs.indexOf(f.section) < 0) f.section = secs.length === 1 ? secs[0] : '';
+  if (!f.pay) f.pay = 'bank';
+  var h = '<main><h1>New request</h1>';
+  if (secs.length > 1) h += field('Section', 'rq-sec', '<select class="in" id="rq-sec" data-f="section" data-r="1">' + options([['', 'Choose one']].concat(secs.map(function (c) { return [c, secName(c)]; })), f.section) + '</select>');
+  h += field('What do you need?', 'rq-what', input('rq-what', 'what', f.what, 'text', 'placeholder="Example: footballs, 10"'));
+  h += field('Amount in Kwacha', 'rq-amount', input('rq-amount', 'amount', f.amount, 'number', 'min="0" inputmode="decimal" data-b="1" placeholder="Example: 1800"'));
+  h += field('Budget line', 'rq-line', '<select class="in" id="rq-line" data-f="line" data-b="1">' + lineOptions(f.section, f.line) + '</select>');
+  h += '<div id="linebox">' + lineBox(f.line, Number(f.amount) || 0, true) + '</div>';
+  h += '<div class="field"><div class="lab" id="rq-prio">Priority</div><div class="s m">P1 cannot wait. P2 important. P3 can wait.</div><div class="btns" role="group" aria-labelledby="rq-prio">' +
+    ['P1', 'P2', 'P3'].map(function (p) { return '<button type="button" class="btn' + (f.prio === p ? ' on' : '') + '" aria-pressed="' + (f.prio === p) + '" data-a="setPrio" data-id="' + p + '">' + p + '</button>'; }).join('') + '</div></div>';
+  h += field('Date you need the money', 'rq-date', input('rq-date', 'needed', f.needed, 'date', 'data-b="1"'), 'Ask at least ' + V().settings.noticeDays + ' working days before.');
+  h += '<div class="field"><div class="lab" id="rq-pay">Pay by</div><div class="btns" role="group" aria-labelledby="rq-pay"><button type="button" class="btn' + (f.pay === 'bank' ? ' on' : '') + '" aria-pressed="' + (f.pay === 'bank') + '" data-a="setPay" data-id="bank">Bank or mobile money</button><button type="button" class="btn' + (f.pay === 'cash' ? ' on' : '') + '" aria-pressed="' + (f.pay === 'cash') + '" data-a="setPay" data-id="cash">Cash</button></div></div>';
+  h += field('Photo of the quotation', 'rq-photo', '<input class="in" id="rq-photo" type="file" accept="image/*" data-photo="form">') + (f.photo ? '<div class="good s" role="status">Photo added.</div>' : '');
+  h += '<div id="noticebox">' + noticeBox() + '</div>';
+  if (S.ui.err) h += '<div class="box err" role="alert">' + esc(S.ui.err) + '</div>';
+  h += '<button type="button" id="sendbtn" class="btn big ' + (isShort() ? 'em' : 'pri') + '" data-a="send">' + (isShort() ? 'Send as Emergency' : 'Send request') + '</button></main>';
+  return h;
+}
+function scrMine() {
+  var v = V(), list = v.requests.filter(function (r) { return r.by === S.me.id || S.me.sections.indexOf(r.section) >= 0; }).sort(function (a, b) { return (b.received || '') < (a.received || '') ? -1 : 1; });
+  var m = today().slice(0, 7), month = list.filter(function (r) { return r.created.slice(0, 7) === m && r.status !== 'Cancelled'; });
+  var h = '<main><h1>My requests</h1>';
+  if (S.ui.msg) h += '<div class="box ok" role="status">' + esc(S.ui.msg) + '</div>';
+  h += '<div class="m">' + MOL[Number(m.slice(5)) - 1] + ': ' + plural(month.length, 'request', 'requests') + ', ' + month.filter(function (r) { return r.emergency; }).length + ' Emergency</div>';
+  if (!list.length) h += '<div class="s m">Nothing yet.</div>';
+  list.slice(0, 60).forEach(function (r) { h += reqCard(r, { sec: S.me.sections.length > 1 }); });
+  return h + '</main>';
+}
+
+function scrDecide() {
+  var v = V(), can = S.me.role === 'director', w = weekInfo(), order = { P1: 1, P2: 2, P3: 3 };
+  var waiting = v.requests.filter(function (r) { return r.status === 'Waiting'; }).sort(function (a, b) { if (a.emergency !== b.emergency) return a.emergency ? -1 : 1; if (a.prio !== b.prio) return order[a.prio] - order[b.prio]; return a.needed < b.needed ? -1 : 1; });
+  var total = 0, em = 0, byP = { P1: 0, P2: 0, P3: 0 };
+  waiting.forEach(function (r) { total += r.amount; if (r.emergency) em++; byP[r.prio] += r.amount; });
+  var h = '<main><h1>To decide</h1><div class="card"><div class="big num">' + waiting.length + ' waiting · ' + money(total) + '</div><div class="b" style="color:var(--em-ink)">' + em + ' sent as Emergency</div>';
+  if (w.set) h += '<div class="num" style="margin-top:6px">Money this week: ' + money(w.money) + ' · approved ' + money(w.used) + '</div><div class="num b ' + (w.left >= 0 ? 'good' : 'bad') + '" style="font-size:18px">' + (w.left >= 0 ? 'Left: ' + money(w.left) : 'Short by ' + money(-w.left)) + '</div>' +
+    '<div class="s num" style="margin-top:6px"><div class="b">If you approve</div><div>P1 only: ' + leftText(w.left - byP.P1) + '</div><div>P1 and P2: ' + leftText(w.left - byP.P1 - byP.P2) + '</div><div>All: ' + leftText(w.left - total) + '</div></div>';
+  else h += '<div class="s" style="margin-top:6px">The Accountant has not written the money for this week yet. Approved this week: ' + money(w.used) + '.</div>';
+  h += '<div class="s m" style="margin-top:6px">Rule: ' + v.settings.noticeDays + ' working days notice. Decision day: ' + WDL[v.settings.approvalDay] + '.</div></div>';
+  if (!waiting.length) h += '<div class="s m">Nothing waiting.</div>';
+  waiting.forEach(function (r) {
+    h += reqCard(r, { sec: true, band: true, budget: true, nopill: true, actions: can ? '<div class="btns"><button type="button" class="btn pri" style="flex:2 1 0" data-a="approve" data-id="' + esc(r.id) + '">Approve</button><button type="button" class="btn" style="flex:2 1 0" data-a="later" data-id="' + esc(r.id) + '">Next week</button><button type="button" class="btn" data-a="refuse" data-id="' + esc(r.id) + '">No</button></div>' : '' });
+  });
+  var wk = w.key, decided = v.requests.filter(function (r) { return (r.status === 'Approved' || r.status === 'Next week' || r.status === 'Not approved') && r.decidedAt && finWeekKey(finToday(r.decidedAt)) === wk; });
+  if (decided.length) {
+    h += '<h2>Decided this week</h2>';
+    decided.forEach(function (r) { h += '<div class="card"><div class="row"><div class="b">' + esc(r.what) + '</div><div class="b num">' + money(r.amount) + '</div></div><div class="s m">' + esc(secName(r.section)) + '</div><div class="row" style="align-items:center"><div>' + pill(r) + '</div>' + (can ? '<button type="button" class="btn" data-a="undo" data-id="' + esc(r.id) + '">Undo</button>' : '') + '</div></div>'; });
+  }
+  return h + '</main>';
+}
+function scrDead() {
+  var v = V(), open = v.deadlines.filter(function (x) { return !x.deleted && !x.asked; }).map(function (x) { x.v = deadlineView(x); return x; }).sort(function (a, b) { return a.v.askBy < b.v.askBy ? -1 : 1; });
+  var late = open.filter(function (x) { return x.v.late; }).length;
+  var h = '<main><h1>Deadlines</h1><div class="card big num">' + open.length + ' with no request · ' + late + ' late</div>';
+  if (!open.length) h += '<div class="s m">No open dates. The sections add them in "Coming up"; you can add them here too.</div>';
+  open.forEach(function (x) {
+    h += '<div class="card"><div class="sec">' + esc(secName(x.section)) + '</div><div class="row"><div class="b">' + esc(x.what) + '</div><div class="b num">' + money(x.amount) + '</div></div><div class="s">Needed ' + day(x.date) + (x.repeat ? ' · every month' : '') + '</div>' +
+      '<div class="b' + (x.v.late || x.v.last ? ' bad' : '') + '">' + (x.v.late ? 'No request. Late since ' + day(x.v.askBy) + '.' : x.v.last ? 'No request. Last day to ask is today.' : 'No request yet. Last day to ask: ' + day(x.v.askBy) + '.') + '</div>' +
+      (finCanDeadline(S.me, x.section) ? '<button type="button" class="btn" data-a="dlEdit" data-id="' + esc(x.id) + '">Change</button>' : '') + '</div>';
+  });
+  if (S.me.role !== 'viewer' || S.me.admin) h += '<button type="button" class="btn" data-a="dlNew">Add a date</button>';
+  return h + '</main>';
+}
+function scrMonth() {
+  var v = V(), m = S.ui.month || today().slice(0, 7), rows = {}, tot = { n: 0, em: 0, amount: 0, cash: 0, rec: 0, recAmount: 0 };
+  v.requests.forEach(function (r) {
+    if (r.created.slice(0, 7) !== m || r.status === 'Cancelled') return;
+    var g = rows[r.section] || (rows[r.section] = { code: r.section, n: 0, em: 0, amount: 0 });
+    g.n++; g.amount += r.amount; if (r.emergency) g.em++;
+    tot.n++; tot.amount += r.amount; if (r.emergency) tot.em++; if (r.pay === 'cash') tot.cash += r.amount;
+    if (r.status === 'Paid' && !r.receipt) { tot.rec++; tot.recAmount += r.amount; }
+  });
+  var list = Object.keys(rows).map(function (k) { return rows[k]; }).sort(function (a, b) { return (b.em - a.em) || (b.n - a.n); });
+  var h = '<main><div class="row" style="align-items:center"><button type="button" class="btn" data-a="monthMove" data-id="-1" aria-label="Month before">&lsaquo;</button><h1>' + MOL[Number(m.slice(5)) - 1] + ' ' + m.slice(0, 4) + '</h1><button type="button" class="btn" data-a="monthMove" data-id="1" aria-label="Month after">&rsaquo;</button></div>';
+  h += '<div class="card"><div class="big num">' + plural(tot.n, 'request', 'requests') + ' · ' + tot.em + ' Emergency</div><div class="num">Cash: ' + money(tot.cash) + ' of ' + money(tot.amount) + '</div>' + (tot.rec ? '<div class="bad num">Paid, receipt missing: ' + tot.rec + ' · ' + money(tot.recAmount) + '</div>' : '') + '</div>';
+  h += '<div class="wrap s m"><span class="wrap"><i style="width:14px;height:14px;border-radius:3px;background:var(--demo);display:block"></i>Emergency</span><span class="wrap"><i style="width:14px;height:14px;border-radius:3px;background:var(--blue);display:block"></i>Asked in time</span></div>';
+  if (!list.length) h += '<div class="s m">No requests in this month.</div>';
+  list.forEach(function (g) {
+    var s = SEC[g.code], used = sectionUse(g.code);
+    h += '<div class="card"><div class="row"><div class="b">' + esc(secName(g.code)) + '</div><div class="s m num">' + money(g.amount) + '</div></div><div class="bar" aria-hidden="true" style="height:16px;background:var(--blue)"><i class="em" style="width:' + pct(g.em, g.n) + '%"></i></div><div class="s num">' + plural(g.n, 'request', 'requests') + ' · ' + g.em + ' Emergency</div>' +
+      (s ? '<div class="s m num">Budget ' + FIN_BUDGET.year + ': ' + money(used) + ' of ' + money(s.total) + ' approved (' + pct(used, s.total) + '%)</div>' : '') + '</div>';
+  });
+  return h + '</main>';
+}
+function scrPay() {
+  var v = V(), w = weekInfo(), can = S.me.role === 'accountant';
+  var list = v.requests.filter(function (r) { return r.status === 'Approved'; }).sort(function (a, b) { return a.needed < b.needed ? -1 : 1; });
+  var paid = v.requests.filter(function (r) { return r.status === 'Paid' && r.paidAt && finWeekKey(finToday(r.paidAt)) === w.key; });
+  var h = '<main><h1>To pay</h1><div class="card">' + field('Money for this week, in Kwacha', 'acc-week', input('acc-week', 'week', S.ui.form.week != null ? S.ui.form.week : (w.set ? w.money : ''), 'number', 'min="0" inputmode="decimal"'), 'Week of ' + day(w.key) + '.') +
+    '<button type="button" class="btn" data-a="weekSave">Save</button>' + (w.set ? '<div class="num b ' + (w.left >= 0 ? 'good' : 'bad') + '" style="font-size:18px">' + (w.left >= 0 ? 'Left: ' + money(w.left) : 'Short by ' + money(-w.left)) + '</div><div class="s num">Approved this week: ' + money(w.used) + '</div>' : '') + '</div>';
+  if (!list.length) h += '<div class="s m">Nothing to pay.</div>';
+  list.forEach(function (r) { h += reqCard(r, { sec: true, nopill: true, actions: '<div class="s b ' + (r.quoteFile ? 'm' : 'bad') + '">' + (r.quoteFile ? 'Quotation attached' : 'No quotation') + '</div>' + (can ? '<button type="button" class="btn pri" data-a="paid" data-id="' + esc(r.id) + '">Paid</button>' : '') }); });
+  if (paid.length) { h += '<h2>Paid this week</h2>'; paid.forEach(function (r) { h += '<div class="card"><div class="row"><div class="b">' + esc(r.what) + '</div><div class="b num">' + money(r.amount) + '</div></div><div class="row" style="align-items:center"><div class="s m">' + esc(secName(r.section)) + ' · ' + payText(r) + '</div>' + (can ? '<button type="button" class="btn" data-a="unpay" data-id="' + esc(r.id) + '">Undo</button>' : '') + '</div></div>'; }); }
+  return h + '</main>';
+}
+function scrRec() {
+  var v = V(), list = v.requests.filter(function (r) { return r.status === 'Paid' && !r.receipt; }).sort(function (a, b) { return a.paidAt < b.paidAt ? -1 : 1; });
+  var h = '<main><h1>Receipts missing</h1>';
+  if (!list.length) h += '<div class="s m">Every payment has a receipt.</div>';
+  list.forEach(function (r) { h += reqCard(r, { sec: true, nopill: true, actions: '<div class="s m">Paid ' + when(r.paidAt) + '</div><button type="button" class="btn pri" data-a="openReq" data-id="' + esc(r.id) + '">Add the receipt</button>' }); });
+  return h + '</main>';
+}
+function scrMore() {
+  var me = S.me, seesAll = finSeesAll(me), h = '<main><h1>More</h1><div class="card"><div class="b">' + esc(me.name) + '</div><div class="s m">' + esc(roleText(me)) + '</div><div class="btns"><button type="button" class="btn" data-a="pinOpen">' + ic('lock') + 'Change my PIN</button><button type="button" class="btn" data-a="signOutAsk">' + ic('out') + 'Sign out</button></div></div>';
+  h += '<div class="list"><button type="button" class="btn user" data-a="allReqs">' + ic('mine') + '<span style="flex:1">' + (seesAll ? 'All requests' : 'All my requests') + '</span></button>';
+  if (me.admin) h += '<button type="button" class="btn user" data-a="people">' + ic('people') + '<span style="flex:1">People and PINs</span></button>';
+  if (me.role === 'director' || me.admin) h += '<button type="button" class="btn user" data-a="rules">' + ic('rules') + '<span style="flex:1">Rules</span></button>';
+  if (me.admin && S.cfg.mode === 'shared') h += '<button type="button" class="btn user" data-a="invite">' + ic('send') + '<span style="flex:1">Invite the staff</span></button>';
+  h += '<button type="button" class="btn user" data-a="budget">' + ic('month') + '<span style="flex:1">Budget ' + FIN_BUDGET.year + '</span></button>';
+  h += '<button type="button" class="btn user" data-a="installHelp">' + ic('phone') + '<span style="flex:1">Put CYP FIN on this phone</span></button></div>';
+  var q = myQueue().length;
+  h += '<div class="card"><div class="b">' + (S.cfg.mode === 'shared' ? 'Shared database' : S.cfg.mode === 'demo' ? 'Demo' : 'This phone only') + '</div><div class="s m">' + (S.cfg.mode === 'shared' ? (S.online ? 'Connected.' : 'No internet now.') + (S.lastSync ? ' Last check: ' + new Date(S.lastSync).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) + '.' : '') + (q ? ' ' + q + ' to send.' : '') : 'Other phones do not see this data.') + '</div>' +
+    (S.cfg.mode === 'shared' ? '<button type="button" class="btn" data-a="syncNow">Check now</button>' : '') + '</div>';
+  return h + '<div class="s m center">CYP FIN ' + FIN_VERSION + '</div></main>';
+}
+function scrAll() {
+  var v = V(), f = S.ui.form, list = v.requests.filter(function (r) { return (!f.fStatus || r.status === f.fStatus) && (!f.fSec || r.section === f.fSec); }).sort(function (a, b) { return (b.received || '') < (a.received || '') ? -1 : 1; });
+  var secs = {}; v.requests.forEach(function (r) { secs[r.section] = 1; });
+  var h = '<main><div class="row" style="align-items:center"><h1>All requests</h1><button type="button" class="btn" data-a="tab" data-id="more">Back</button></div>' +
+    '<div class="btns"><select class="in" data-f="fStatus" data-r="1" aria-label="Status">' + options([['', 'Every status']].concat(FIN_STATUSES.map(function (s) { return [s, PILL[s][0]]; })), f.fStatus) + '</select><select class="in" data-f="fSec" data-r="1" aria-label="Section">' + options([['', 'Every section']].concat(Object.keys(secs).map(function (c) { return [c, secName(c)]; })), f.fSec) + '</select></div>' +
+    '<div class="s m">' + plural(list.length, 'request', 'requests') + '</div>';
+  list.slice(0, 200).forEach(function (r) { h += reqCard(r, { sec: true }); });
+  return h + '</main>';
+}
+function scrPeople() {
+  var v = V(), h = '<main><div class="row" style="align-items:center"><h1>People</h1><button type="button" class="btn" data-a="tab" data-id="more">Back</button></div><button type="button" class="btn pri" data-a="personNew">Add a person</button><div class="list">';
+  v.users.slice().sort(function (a, b) { return a.name < b.name ? -1 : 1; }).forEach(function (u) { h += '<button type="button" class="btn user" data-a="personEdit" data-id="' + esc(u.id) + '"><span>' + esc(u.name) + (u.active === false ? ' (off)' : '') + '</span><span class="s m" style="font-weight:400;text-align:right">' + esc(roleText(u)) + '</span></button>'; });
+  return h + '</div></main>';
+}
+
+/* ---- windows that open over the screen ---- */
+function mField(label, id, key, type, extra, hint) { var m = S.ui.m; return '<div class="field"><label for="' + id + '">' + label + '</label>' + (hint ? '<div class="s m">' + hint + '</div>' : '') + '<input class="in" id="' + id + '" data-m="' + key + '" type="' + (type || 'text') + '" value="' + esc(m[key] == null ? '' : m[key]) + '" ' + (extra || '') + '></div>'; }
+function modal() {
+  var x = S.ui.modal, m = S.ui.m; if (!x) return '';
+  var h = '', err = S.ui.merr ? '<div class="box err" role="alert">' + esc(S.ui.merr) + '</div>' : '', close = '<button type="button" class="btn" data-a="closeModal">Close</button>';
+  if (x.type === 'req') {
+    var r = finFind(V().requests, x.id); if (!r) { S.ui.modal = null; return ''; }
+    var own = r.by === S.me.id || S.me.sections.indexOf(r.section) >= 0, acc = S.me.role === 'accountant';
+    h += '<div class="row"><h1>' + reqNo(r) + '</h1>' + pill(r) + '</div><div class="card"><div class="wrap"><span class="sec">' + esc(secName(r.section)) + '</span><span class="tag">' + esc(r.prio) + '</span>' + (r.emergency ? '<span class="pill em">Emergency</span>' : '') + '</div><div class="row"><div class="b">' + esc(r.what) + '</div><div class="b num">' + money(r.amount) + '</div></div>' +
+      '<div class="s">Needed ' + day(r.needed) + ' · asked ' + day(r.created) + ' by ' + esc(r.byName) + ' · ' + plural(r.notice, 'working day', 'working days') + ' notice · ' + payText(r) + '</div>' +
+      (r.emergency ? '<div class="s" style="color:var(--em-ink)">' + esc(r.reason) + ': ' + esc(r.why) + '</div>' : '') + '</div>' + lineBox(r.line, r.amount, r.status === 'Waiting' || r.status === 'Next week');
+    var hist = '';
+    if (r.decidedAt) hist += '<div class="s">' + (r.status === 'Paid' || r.status === 'Approved' ? 'Approved' : r.status === 'Not approved' ? 'Not approved' : 'Moved to next week') + ' by ' + esc(r.decidedBy) + ', ' + when(r.decidedAt) + (r.note ? ': ' + esc(r.note) : '') + '</div>';
+    if (r.paidAt) hist += '<div class="s">Paid by ' + esc(r.paidBy) + ', ' + when(r.paidAt) + '</div>';
+    if (r.receipt) hist += '<div class="s">Receipt added by ' + esc(r.receiptBy) + ', ' + when(r.receiptAt) + '</div>';
+    if (hist) h += '<div class="card">' + hist + '</div>';
+    if (x.img) h += '<img class="photo" alt="Photo" src="' + x.img + '">';
+    if (x.wait) h += '<div class="s m">' + esc(x.wait) + '</div>';
+    var b = '';
+    if (r.quoteFile) b += '<button type="button" class="btn" data-a="seeFile" data-id="' + esc(r.quoteFile) + '">See the quotation</button>';
+    if (r.receiptFile) b += '<button type="button" class="btn" data-a="seeFile" data-id="' + esc(r.receiptFile) + '">See the receipt</button>';
+    if (b) h += '<div class="btns">' + b + '</div>';
+    if (!r.quoteFile && (own || acc) && r.status !== 'Cancelled') h += '<div class="field"><label for="md-quote">Add the photo of the quotation</label><input class="in" id="md-quote" type="file" accept="image/*" data-photo="quote"></div>';
+    if (r.status === 'Paid' && !r.receipt && (own || acc)) h += '<div class="card"><div class="field"><label for="md-rec">Photo of the receipt</label><input class="in" id="md-rec" type="file" accept="image/*" data-photo="receipt"></div>' + (m.photo ? '<div class="good s">Photo added.</div>' : '') + '<button type="button" class="btn pri" data-a="receipt" data-id="' + esc(r.id) + '">' + (m.photo ? 'Save the receipt' : 'Receipt added, no photo') + '</button></div>';
+    if ((r.status === 'Waiting' || r.status === 'Next week') && own) h += '<button type="button" class="btn" data-a="cancelReq" data-id="' + esc(r.id) + '">Cancel this request</button>';
+    h += err + close;
+  }
+  if (x.type === 'note') {
+    h += '<h1>' + (x.status === 'Next week' ? 'Move to next week' : 'Not approved') + '</h1>' + mField('Reason for the section', 'md-note', 'note', 'text', '', 'They will see it.') + err + '<div class="btns"><button type="button" class="btn pri" data-a="decideSave">Confirm</button>' + close + '</div>';
+  }
+  if (x.type === 'dl') {
+    var secs = finSeesAll(S.me) && S.me.role !== 'viewer' || S.me.admin ? FIN_BUDGET.sections.map(function (s) { return s.code; }) : S.me.sections;
+    if (!m.section && secs.length === 1) m.section = secs[0];
+    h += '<h1>' + (x.id ? 'Change the date' : 'Add a date') + '</h1>' +
+      (secs.length > 1 ? '<div class="field"><label for="dl-sec">Section</label><select class="in" id="dl-sec" data-m="section" data-r="1">' + options([['', 'Choose one']].concat(secs.map(function (c) { return [c, secName(c)]; })), m.section) + '</select></div>' : '') +
+      mField('What is it?', 'dl-what', 'what', 'text', 'placeholder="Example: away match"') + mField('Amount in Kwacha', 'dl-amount', 'amount', 'number', 'min="0" inputmode="decimal"') +
+      '<div class="field"><label for="dl-line">Budget line</label><select class="in" id="dl-line" data-m="line">' + lineOptions(m.section, m.line) + '</select></div>' +
+      mField('Date the money is needed', 'dl-date', 'date', 'date') +
+      '<div class="checks"><label><input type="checkbox" data-m="monthly"' + (m.monthly ? ' checked' : '') + '>Every month</label><label><input type="checkbox" data-m="cash"' + (m.cash ? ' checked' : '') + '>Paid in cash</label></div>' + err +
+      '<div class="btns"><button type="button" class="btn pri" data-a="dlSave">Save</button>' + close + '</div>' + (x.id ? '<button type="button" class="btn" data-a="dlDel" data-id="' + esc(x.id) + '">Remove this date</button>' : '');
+  }
+  if (x.type === 'person') {
+    h += '<h1>' + (x.id ? 'Change a person' : 'Add a person') + '</h1>' + mField('Name', 'pe-name', 'name') +
+      '<div class="field"><label for="pe-role">Role</label><select class="in" id="pe-role" data-m="role">' + options([['head', 'Section head'], ['director', 'Director'], ['accountant', 'Accountant'], ['viewer', 'Can look']], m.role || 'head') + '</select></div>' +
+      '<div class="field"><div class="lab">Sections this person asks for</div><div class="checks">' + FIN_BUDGET.sections.map(function (s) { return '<label><input type="checkbox" data-sec="' + s.code + '"' + ((m.sections || []).indexOf(s.code) >= 0 ? ' checked' : '') + '>' + esc(s.name) + '</label>'; }).join('') + '</div></div>' +
+      '<div class="checks"><label><input type="checkbox" data-m="admin"' + (m.admin ? ' checked' : '') + '>Administrator</label><label><input type="checkbox" data-m="active"' + (m.active !== false ? ' checked' : '') + '>Can enter</label></div>' +
+      mField(x.id ? 'New PIN (leave empty to keep the PIN)' : 'PIN', 'pe-pin', 'pin', 'text', 'inputmode="numeric" autocomplete="off"', '4 to 8 numbers. Tell it to the person; they can change it.') + err +
+      '<div class="btns"><button type="button" class="btn pri" data-a="personSave">Save</button>' + close + '</div>';
+  }
+  if (x.type === 'rules') {
+    h += '<h1>Rules</h1>' + mField('Working days of notice', 'ru-days', 'noticeDays', 'number', 'min="0" max="30" inputmode="numeric"', 'A request with less notice goes as Emergency.') +
+      '<div class="field"><label for="ru-day">Day of the decisions</label><select class="in" id="ru-day" data-m="approvalDay">' + options([[1, 'Monday'], [2, 'Tuesday'], [3, 'Wednesday'], [4, 'Thursday'], [5, 'Friday']], m.approvalDay) + '</select></div>' +
+      mField('Count the budget from', 'ru-from', 'countFrom', 'date', '', 'Requests needed before this date do not use the ' + FIN_BUDGET.year + ' budget.') + err + '<div class="btns"><button type="button" class="btn pri" data-a="rulesSave">Save</button>' + close + '</div>';
+  }
+  if (x.type === 'pin') {
+    h += '<h1>Change my PIN</h1>' + mField('PIN now', 'pn-old', 'old', 'password', 'inputmode="numeric" autocomplete="off"') + mField('New PIN', 'pn-new', 'pin', 'password', 'inputmode="numeric" autocomplete="new-password"', '4 to 8 numbers.') + mField('New PIN again', 'pn-new2', 'pin2', 'password', 'inputmode="numeric" autocomplete="new-password"') + err + '<div class="btns"><button type="button" class="btn pri" data-a="pinSave">Save</button>' + close + '</div>';
+  }
+  if (x.type === 'text') { h += '<h1>' + esc(x.title) + '</h1>' + x.html + close; }
+  if (x.type === 'ask') { h += '<h1>' + esc(x.title) + '</h1><div>' + esc(x.text) + '</div><div class="btns"><button type="button" class="btn pri" data-a="' + x.yes + '">' + esc(x.yesText) + '</button>' + close + '</div>'; }
+  return '<div class="modal" data-a="modalBg"><div class="sheet" role="dialog" aria-modal="true">' + h + '</div></div>';
+}
+
+var SCREENS = { soon: scrSoon, 'new': scrNew, mine: scrMine, decide: scrDecide, dead: scrDead, month: scrMonth, pay: scrPay, rec: scrRec, more: scrMore, all: scrAll, people: scrPeople, budget: scrBudget };
+function render() {
+  var app = document.getElementById('app'), ae = document.activeElement, keep = ae && ae.id && app.contains(ae) ? { id: ae.id, s: ae.selectionStart, e: ae.selectionEnd } : null, y = window.scrollY, sheet = app.querySelector('.sheet'), sy = sheet ? sheet.scrollTop : 0;
+  var h;
+  if (S.ui.screen === 'boot') h = head() + '<main><div class="s m">Opening...</div></main>';
+  else if (S.ui.screen === 'start') h = head() + scrStart();
+  else if (S.ui.screen === 'first') h = head() + scrFirst();
+  else if (S.ui.screen === 'login') h = head() + scrLogin();
+  else {
+    var body = (SCREENS[S.ui.tab] || scrMore)();
+    if (EXPORTS[S.ui.tab]) { var cut = body.lastIndexOf('</main>'); body = body.slice(0, cut) + '<button type="button" class="btn" data-a="exportPage">' + ic('down') + 'Export in Excel</button>' + body.slice(cut); }
+    h = head() + body + nav() + modal();
+  }
+  app.innerHTML = h;
+  if (keep) { var el = document.getElementById(keep.id); if (el) { try { el.focus(); if (keep.s != null && el.setSelectionRange && /text|password|search|tel|url/.test(el.type)) el.setSelectionRange(keep.s, keep.e); } catch (e) {} } }
+  if (S.ui.keepScroll) { window.scrollTo(0, y); var s2 = app.querySelector('.sheet'); if (s2) s2.scrollTop = sy; } else window.scrollTo(0, 0);
+  S.ui.keepScroll = true;
+}
+function go(tab) { S.ui.tab = tab; S.ui.err = ''; S.ui.msg = ''; S.ui.modal = null; S.ui.merr = ''; S.ui.keepScroll = false; render(); }
+function openModal(x, m) { S.ui.modal = x; S.ui.m = m || {}; S.ui.merr = ''; render(); }
+function refreshBoxes() {
+  var f = S.ui.form, a = document.getElementById('linebox'), b = document.getElementById('noticebox'), s = document.getElementById('sendbtn');
+  if (a) a.innerHTML = lineBox(f.line, Number(f.amount) || 0, true);
+  if (b) {
+    var had = !!b.querySelector('#rq-reason'), will = isShort();
+    if (had !== will || !will) b.innerHTML = noticeBox();
+    else { var st = document.getElementById('shorttxt'); if (st) st.textContent = plural(finWorkDays(today(), f.needed), 'working day', 'working days') + ' notice. The rule is ' + V().settings.noticeDays + '.'; }
+  }
+  if (s) { s.textContent = isShort() ? 'Send as Emergency' : 'Send request'; s.className = 'btn big ' + (isShort() ? 'em' : 'pri'); }
+}
+
+/* ================= photos: made small before they are kept ================= */
+function readPhoto(file) {
+  return new Promise(function (res, rej) {
+    var url = URL.createObjectURL(file), img = new Image();
+    img.onload = function () {
+      var max = 1280, w = img.naturalWidth, h = img.naturalHeight, k = Math.min(1, max / Math.max(w, h)), c = document.createElement('canvas');
+      c.width = Math.round(w * k); c.height = Math.round(h * k); c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
+      URL.revokeObjectURL(url);
+      var data = c.toDataURL('image/jpeg', 0.7); res({ mime: 'image/jpeg', b64: data.slice(data.indexOf(',') + 1) });
+    };
+    img.onerror = function () { URL.revokeObjectURL(url); rej(new Error('photo')); };
+    img.src = url;
+  });
+}
+
+/* ================= what the buttons do ================= */
+function pinOk(p) { return /^\d{4,8}$/.test(String(p || '')); }
+function enter(u, cred) {
+  S.me = u; S.cred = cred; remember();
+  return KV.get('cache:' + u.id).then(function (c) {
+    S.cache = c || emptyCache(); fresh();
+    var t = tabsFor(); S.ui = { screen: 'main', tab: t[0][0], form: {}, modal: null, m: {}, month: '', pick: null, err: '', msg: '' };
+    render(); return sync();
+  });
+}
+function hello() {
+  return call({ action: 'hello' }).then(function (res) {
+    S.online = true;
+    if (!res.ok) { S.ui.msg = res.error === 'key' ? 'This link is not valid. Ask the administrator for the link.' : errText(res.error); return res; }
+    S.users = res.users; KV.set('users', S.users);
+    return res;
+  }).catch(function () { S.online = false; return null; });
+}
+function startWith(cfg) {
+  S.cfg = cfg; KV.set('cfg', cfg);
+  return hello().then(function (res) {
+    S.ui.screen = res && res.ok && res.empty ? 'first' : 'login'; S.ui.form = {}; S.ui.err = '';
+    var ses = null; try { ses = JSON.parse(sessionStorage.getItem('fin-session') || 'null'); } catch (e) {}
+    var u = ses ? finFind(S.users, ses.id) : null;
+    if (u && S.ui.screen === 'login') return enter(u, ses.cred);
+    render();
+  });
+}
+function parseLink(text) {
+  text = String(text || '').trim();
+  var m = text.match(/[?&#]db=([A-Za-z0-9_\-]+)/), raw = m ? m[1] : (/^[A-Za-z0-9_\-]{40,}$/.test(text) ? text : '');
+  if (raw) { try { var s = atob(raw.replace(/-/g, '+').replace(/_/g, '/')); var i = s.lastIndexOf('|'); if (i > 0) return { mode: 'shared', url: s.slice(0, i), key: s.slice(i + 1) }; } catch (e) {} }
+  m = text.match(/^(https:\/\/script\.google\.com\/[^?\s]+)\?k=([A-Za-z0-9]+)$/);
+  if (m) return { mode: 'shared', url: m[1], key: m[2] };
+  return null;
+}
+function staffLink() { var code = btoa(S.cfg.url + '|' + S.cfg.key).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, ''); return location.origin + location.pathname + '?db=' + code; }
+function demoDb() {
+  var db = finNewDb(), t = today(), n = 0, mk = function (id, name, role, sections, admin) { db.rev++; db.users.push({ id: id, name: name, role: role, sections: sections, admin: !!admin, active: true, salt: 'demo', cred: credOf('demo', '1111'), fails: 0, lockUntil: '', rev: db.rev }); };
+  mk('d-head', 'Demo head, Football Academy', 'head', ['FOO']); mk('d-dir', 'Demo Director', 'director', [], true); mk('d-acc', 'Demo Accountant', 'accountant', ['ADM']); mk('d-car', 'Demo head, Carpentry', 'head', ['CAR']);
+  var rq = function (sec, by, what, amount, line, prio, sentOff, needOff, pay, status, o) {
+    o = o || {}; db.rev++; db.seq++; n++;
+    var created = finAddDays(t, sentOff), needed = finAddDays(t, needOff), u = finFind(db.users, by), at = new Date(Date.now() + sentOff * 86400000).toISOString();
+    db.requests.push({ id: 'dr' + n, no: 'R' + ('000' + db.seq).slice(-4), section: sec, what: what, amount: amount, line: line, lineName: LINE[line] ? LINE[line].name : 'Not in the budget', prio: prio, needed: needed, pay: pay, created: created, received: at,
+      notice: finWorkDays(created, needed), emergency: !!o.reason, reason: o.reason || '', why: o.why || '', by: by, byName: u.name, status: status, decidedBy: status === 'Waiting' ? '' : 'Demo Director', decidedAt: status === 'Waiting' ? '' : nowIso(), note: '',
+      week: status === 'Approved' ? finWeekKey(t) : '', paidBy: status === 'Paid' ? 'Demo Accountant' : '', paidAt: status === 'Paid' ? at : '', receipt: !!o.receipt, receiptBy: o.receipt ? 'Demo Accountant' : '', receiptAt: o.receipt ? at : '', quoteFile: '', receiptFile: '', deadline: '', rev: db.rev });
+  };
+  rq('FOO', 'd-head', 'Cash allowance, away match', 2400, 'FOO-11', 'P1', 0, 1, 'cash', 'Waiting', { reason: 'Other reason', why: 'Match date moved' });
+  rq('ADM', 'd-acc', 'Brake pads, bus 2', 3800, 'ADM-05', 'P1', 0, 2, 'bank', 'Waiting', { reason: 'Breakdown that stops a service', why: 'Bus 2 is off the road' });
+  rq('ADM', 'd-acc', 'Road tax, bus 1', 1300, 'ADM-07', 'P1', -1, 3, 'bank', 'Waiting', { reason: 'Other reason', why: 'Deadline found late' });
+  rq('CAR', 'd-car', 'Pine timber for the desks order', 6500, 'CAR-16', 'P2', -3, 12, 'bank', 'Waiting');
+  rq('CAR', 'd-car', 'Dust masks, 10', 950, 'none', 'P3', -2, 10, 'bank', 'Waiting');
+  rq('FOO', 'd-head', 'Footballs, 10', 1800, 'FOO-23', 'P2', -4, 10, 'bank', 'Approved');
+  rq('FOO', 'd-head', 'Cash allowance, referees', 900, 'FOO-07', 'P1', -9, -8, 'cash', 'Paid', { reason: 'Other reason', why: 'Tournament confirmed late' });
+  rq('CAR', 'd-car', 'Varnish, 1 litre', 550, 'CAR-02', 'P2', -6, -5, 'cash', 'Paid', { receipt: true });
+  var dl = function (id, sec, what, amount, line, off, rep) { db.rev++; db.deadlines.push({ id: id, section: sec, what: what, amount: amount, line: line, lineName: LINE[line] ? LINE[line].name : '', date: finAddDays(t, off), repeat: rep ? 'monthly' : '', pay: 'bank', asked: '', deleted: false, rev: db.rev }); };
+  dl('dd1', 'FOO', 'Tournament', 1000, 'FOO-12', 6); dl('dd2', 'FOO', 'Away match', 2000, 'FOO-11', 13); dl('dd3', 'FOO', 'Communication allowance coaches', 320, 'FOO-20', 17, true);
+  dl('dd4', 'CAR', 'Examination fees, 15 students', 5250, 'CAR-21', 4); dl('dd5', 'ADM', 'Motor vehicle insurance, 1 vehicle', 5000, 'ADM-06', 9);
+  db.rev++; db.settings.weeks[finWeekKey(t)] = 22000; db.settings.countFrom = finAddDays(t, -60); db.settings.rev = db.rev;
+  return db;
+}
+
+/* ================= Excel: a real .xlsx file, written on the phone, no internet needed ================= */
+var CRC = (function () { var t = [], c; for (var n = 0; n < 256; n++) { c = n; for (var k = 0; k < 8; k++) c = c & 1 ? 0xEDB88320 ^ (c >>> 1) : c >>> 1; t[n] = c >>> 0; } return t; })();
+function crc32(u8) { var c = 0xFFFFFFFF; for (var i = 0; i < u8.length; i++) c = CRC[(c ^ u8[i]) & 0xFF] ^ (c >>> 8); return (c ^ 0xFFFFFFFF) >>> 0; }
+function zipStore(files) {
+  var enc = new TextEncoder(), parts = [], central = [], offset = 0;
+  function u16(n) { return [n & 255, (n >>> 8) & 255]; }
+  function u32(n) { return [n & 255, (n >>> 8) & 255, (n >>> 16) & 255, (n >>> 24) & 255]; }
+  files.forEach(function (f) {
+    var name = enc.encode(f.name), data = enc.encode(f.text), crc = crc32(data);
+    var local = [].concat(u32(0x04034b50), u16(20), u16(0x0800), u16(0), u16(0), u16(0x5B6E), u32(crc), u32(data.length), u32(data.length), u16(name.length), u16(0));
+    parts.push(new Uint8Array(local), name, data);
+    central.push({ h: [].concat(u32(0x02014b50), u16(20), u16(20), u16(0x0800), u16(0), u16(0), u16(0x5B6E), u32(crc), u32(data.length), u32(data.length), u16(name.length), u16(0), u16(0), u16(0), u16(0), u32(0), u32(offset)), name: name });
+    offset += local.length + name.length + data.length;
+  });
+  var size = 0; central.forEach(function (c) { parts.push(new Uint8Array(c.h), c.name); size += c.h.length + c.name.length; });
+  parts.push(new Uint8Array([].concat(u32(0x06054b50), u16(0), u16(0), u16(files.length), u16(files.length), u32(size), u32(offset), u16(0))));
+  return new Blob(parts, { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+}
+function xmlEsc(x) { return String(x == null ? '' : x).replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F]/g, '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;'); }
+function colName(i) { var s = ''; i++; while (i > 0) { var m = (i - 1) % 26; s = String.fromCharCode(65 + m) + s; i = (i - 1 - m) / 26; } return s; }
+function sheetXml(sh) {
+  var rows = [sh.head].concat(sh.rows), widths = sh.head.map(function (x) { return String(x).length; }), out = '';
+  rows.forEach(function (row, r) {
+    out += '<row r="' + (r + 1) + '">';
+    row.forEach(function (v, c) {
+      var ref = colName(c) + (r + 1), len = String(v == null ? '' : v).length;
+      if (len > widths[c]) widths[c] = len;
+      if (v == null || v === '') return;
+      if (typeof v === 'number' && isFinite(v)) out += '<c r="' + ref + '"><v>' + v + '</v></c>';
+      else out += '<c r="' + ref + '" t="inlineStr"' + (r === 0 ? ' s="1"' : '') + '><is><t xml:space="preserve">' + xmlEsc(v) + '</t></is></c>';
+    });
+    out += '</row>';
+  });
+  var cols = widths.map(function (w, i) { return '<col min="' + (i + 1) + '" max="' + (i + 1) + '" width="' + Math.min(60, Math.max(8, w + 2)) + '" customWidth="1"/>'; }).join('');
+  return '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><sheetViews><sheetView workbookViewId="0"><pane ySplit="1" topLeftCell="A2" activePane="bottomLeft" state="frozen"/></sheetView></sheetViews><cols>' + cols + '</cols><sheetData>' + out + '</sheetData><autoFilter ref="A1:' + colName(sh.head.length - 1) + rows.length + '"/></worksheet>';
+}
+function makeXlsx(sheets) {
+  var X = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>', M = 'http://schemas.openxmlformats.org/spreadsheetml/2006/main', R = 'http://schemas.openxmlformats.org/officeDocument/2006/relationships', P = 'http://schemas.openxmlformats.org/package/2006/relationships';
+  var used = {}, files = [];
+  sheets.forEach(function (sh, i) { var n = String(sh.name).replace(/[\[\]:*?\/\\]/g, ' ').slice(0, 31) || 'Sheet' + (i + 1); while (used[n]) n = n.slice(0, 28) + ' ' + (i + 1); used[n] = 1; sh.name = n; });
+  files.push({ name: '[Content_Types].xml', text: X + '<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/><Override PartName="/xl/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/>' + sheets.map(function (sh, i) { return '<Override PartName="/xl/worksheets/sheet' + (i + 1) + '.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>'; }).join('') + '</Types>' });
+  files.push({ name: '_rels/.rels', text: X + '<Relationships xmlns="' + P + '"><Relationship Id="rId1" Type="' + R + '/officeDocument" Target="xl/workbook.xml"/></Relationships>' });
+  files.push({ name: 'xl/workbook.xml', text: X + '<workbook xmlns="' + M + '" xmlns:r="' + R + '"><bookViews><workbookView/></bookViews><sheets>' + sheets.map(function (sh, i) { return '<sheet name="' + xmlEsc(sh.name) + '" sheetId="' + (i + 1) + '" r:id="rId' + (i + 1) + '"/>'; }).join('') + '</sheets></workbook>' });
+  files.push({ name: 'xl/_rels/workbook.xml.rels', text: X + '<Relationships xmlns="' + P + '">' + sheets.map(function (sh, i) { return '<Relationship Id="rId' + (i + 1) + '" Type="' + R + '/worksheet" Target="worksheets/sheet' + (i + 1) + '.xml"/>'; }).join('') + '<Relationship Id="rId' + (sheets.length + 1) + '" Type="' + R + '/styles" Target="styles.xml"/></Relationships>' });
+  files.push({ name: 'xl/styles.xml', text: X + '<styleSheet xmlns="' + M + '"><fonts count="2"><font><sz val="11"/><name val="Calibri"/></font><font><b/><sz val="11"/><name val="Calibri"/></font></fonts><fills count="2"><fill><patternFill patternType="none"/></fill><fill><patternFill patternType="gray125"/></fill></fills><borders count="1"><border><left/><right/><top/><bottom/><diagonal/></border></borders><cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs><cellXfs count="2"><xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/><xf numFmtId="0" fontId="1" fillId="0" borderId="0" xfId="0" applyFont="1"/></cellXfs><cellStyles count="1"><cellStyle name="Normal" xfId="0" builtinId="0"/></cellStyles></styleSheet>' });
+  sheets.forEach(function (sh, i) { files.push({ name: 'xl/worksheets/sheet' + (i + 1) + '.xml', text: sheetXml(sh) }); });
+  return zipStore(files);
+}
+function saveFile(name, blob) {
+  function plain() { try { var a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = name; document.body.appendChild(a); a.click(); a.remove(); } catch (e) { S.notices.push('This screen cannot save files.'); render(); } }
+  if (window.claude && typeof window.claude.use === 'function') {
+    window.claude.use('downloads').then(function (d) { if (!d) return plain(); return d.save({ filename: name, data: blob }); }).catch(function (e) { if (!e || e.code !== 'declined') { S.notices.push('The file could not be saved here.'); render(); } });
+  } else plain();
+}
+function reqHead() { return ['No', 'Asked on', 'Section', 'What', 'Amount (K)', 'Priority', 'Needed on', 'Notice (working days)', 'Emergency', 'Reason', 'Pay by', 'Status', 'Asked by', 'Budget line code', 'Budget line', 'Activity', 'Budget of the line (K)', 'Approved on the line (K)', 'Decided by', 'Decided on', 'Note of the Director', 'Paid by', 'Paid on', 'Receipt', 'Quotation']; }
+function reqRow(r) {
+  var L = LINE[r.line], u = L ? lineUse(r.line) : null;
+  return [r.no || 'Not sent yet', r.created, secName(r.section), r.what, r.amount, r.prio, r.needed, r.notice, r.emergency ? 'Emergency' : '', r.emergency ? r.reason + ': ' + r.why : '', payText(r), (PILL[r.status] || PILL.Waiting)[0], r.byName, r.line === 'none' ? '' : r.line, r.lineName || (r.line === 'none' ? 'Not in the budget' : ''), L ? L.act : '', L ? L.total : '', u ? u.used : '', r.decidedBy, r.decidedAt ? finToday(r.decidedAt) : '', r.note, r.paidBy, r.paidAt ? finToday(r.paidAt) : '', r.receipt ? 'Yes' : (r.status === 'Paid' ? 'Missing' : ''), r.quoteFile ? 'Yes' : 'No'];
+}
+function dlHead() { return ['Section', 'What', 'Amount (K)', 'Needed on', 'Last day to ask', 'Late', 'Every month', 'Pay by', 'Budget line code', 'Budget line']; }
+function dlRow(x) { var d = deadlineView(x); return [secName(x.section), x.what, x.amount, x.date, d.askBy, d.late ? 'Late' : '', x.repeat ? 'Yes' : '', x.pay === 'cash' ? 'Cash' : 'Bank or mobile money', x.line === 'none' ? '' : (x.line || ''), x.lineName || '']; }
+function budgetSections() { return finSeesAll(S.me) ? FIN_BUDGET.sections : FIN_BUDGET.sections.filter(function (s) { return S.me.sections.indexOf(s.code) >= 0; }); }
+/* what "Export in Excel" gives on each screen: what the screen shows, with the filters chosen */
+function exportSheets() {
+  var v = V(), t = S.ui.tab, f = S.ui.form, w = weekInfo(), order = { P1: 1, P2: 2, P3: 3 }, out = [];
+  function byNew(a, b) { return (b.received || '') < (a.received || '') ? -1 : 1; }
+  function rq(name, list) { out.push({ name: name, head: reqHead(), rows: list.map(reqRow) }); }
+  function dl(name, list) { out.push({ name: name, head: dlHead(), rows: list.sort(function (a, b) { return a.date < b.date ? -1 : 1; }).map(dlRow) }); }
+  function weekSheet() { out.push({ name: 'Money this week', head: ['Item', 'Value'], rows: [['Week of', w.key], ['Money this week (K)', w.set ? w.money : 'Not written yet'], ['Approved this week (K)', w.used], ['Left (K)', w.set ? w.left : '']] }); }
+  if (t === 'mine') rq('My requests', v.requests.filter(function (r) { return r.by === S.me.id || S.me.sections.indexOf(r.section) >= 0; }).sort(byNew));
+  else if (t === 'soon') dl('Coming up', v.deadlines.filter(function (x) { return !x.deleted && !x.asked && S.me.sections.indexOf(x.section) >= 0; }));
+  else if (t === 'dead') dl('Deadlines', v.deadlines.filter(function (x) { return !x.deleted && !x.asked; }));
+  else if (t === 'decide') {
+    rq('To decide', v.requests.filter(function (r) { return r.status === 'Waiting'; }).sort(function (a, b) { if (a.emergency !== b.emergency) return a.emergency ? -1 : 1; if (a.prio !== b.prio) return order[a.prio] - order[b.prio]; return a.needed < b.needed ? -1 : 1; }));
+    rq('Decided this week', v.requests.filter(function (r) { return (r.status === 'Approved' || r.status === 'Next week' || r.status === 'Not approved') && r.decidedAt && finWeekKey(finToday(r.decidedAt)) === w.key; }));
+    weekSheet();
+  } else if (t === 'pay') {
+    rq('To pay', v.requests.filter(function (r) { return r.status === 'Approved'; }).sort(function (a, b) { return a.needed < b.needed ? -1 : 1; }));
+    rq('Paid this week', v.requests.filter(function (r) { return r.status === 'Paid' && r.paidAt && finWeekKey(finToday(r.paidAt)) === w.key; }));
+    weekSheet();
+  } else if (t === 'rec') rq('Receipts missing', v.requests.filter(function (r) { return r.status === 'Paid' && !r.receipt; }));
+  else if (t === 'all') rq('Requests', v.requests.filter(function (r) { return (!f.fStatus || r.status === f.fStatus) && (!f.fSec || r.section === f.fSec); }).sort(byNew));
+  else if (t === 'month') {
+    var m = S.ui.month || today().slice(0, 7), rows = {}, list = v.requests.filter(function (r) { return r.created.slice(0, 7) === m && r.status !== 'Cancelled'; });
+    list.forEach(function (r) { var g = rows[r.section] || (rows[r.section] = { code: r.section, n: 0, em: 0, amount: 0, cash: 0, rec: 0 }); g.n++; g.amount += r.amount; if (r.emergency) g.em++; if (r.pay === 'cash') g.cash += r.amount; if (r.status === 'Paid' && !r.receipt) g.rec++; });
+    out.push({ name: 'By section ' + m, head: ['Section', 'Requests', 'Emergency', 'Asked (K)', 'Of which cash (K)', 'Paid, receipt missing', 'Budget ' + FIN_BUDGET.year + ' (K)', 'Approved so far (K)', '% of the budget'], rows: Object.keys(rows).map(function (k) { var g = rows[k], s = SEC[k], u = sectionUse(k); return [secName(k), g.n, g.em, g.amount, g.cash, g.rec, s ? s.total : '', u, s ? pct(u, s.total) : '']; }) });
+    rq('Requests ' + m, list.sort(byNew));
+  } else if (t === 'people') out.push({ name: 'People', head: ['Name', 'Role', 'Sections', 'Administrator', 'Can enter'], rows: v.users.map(function (u) { return [u.name, { head: 'Section head', director: 'Director', accountant: 'Accountant', viewer: 'Can look' }[u.role], (u.sections || []).map(secName).join(', '), u.admin ? 'Yes' : '', u.active === false ? 'No' : 'Yes']; }) });
+  else if (t === 'budget') {
+    var secs = budgetSections(), lines = [];
+    out.push({ name: 'Sections', head: ['Code', 'Section', 'Budget ' + FIN_BUDGET.year + ' (K)', 'Approved so far (K)', '% of the budget', 'Left (K)'], rows: secs.map(function (s) { var u = sectionUse(s.code); return [s.code, s.name, s.total, u, pct(u, s.total), s.total - u]; }) });
+    secs.forEach(function (s) { s.lines.forEach(function (L) { var u = lineUse(L.id); lines.push([L.id, s.name, L.name, L.act, L.qty, L.unit, L.freq, L.total, u.used, pct(u.used, L.total), L.total - u.used, u.times]); }); });
+    out.push({ name: 'Budget lines', head: ['Line code', 'Section', 'Budget line', 'Activity', 'Quantity', 'Unit cost (K)', 'Times a year', 'Budget ' + FIN_BUDGET.year + ' (K)', 'Approved so far (K)', '% of the line', 'Left (K)', 'Times approved'], rows: lines });
+  }
+  return out;
+}
+var EXPORTS = { soon: 'coming-up', mine: 'my-requests', decide: 'to-decide', dead: 'deadlines', month: 'by-section', pay: 'to-pay', rec: 'receipts', all: 'requests', people: 'people', budget: 'budget' };
+function scrBudget() {
+  var open = S.ui.form.bsec, h = '<main><div class="row" style="align-items:center"><h1>Budget ' + FIN_BUDGET.year + '</h1><button type="button" class="btn" data-a="tab" data-id="more">Back</button></div>';
+  budgetSections().forEach(function (s) {
+    var u = sectionUse(s.code), p = pct(u, s.total);
+    h += '<div class="card tap" role="button" tabindex="0" data-a="budgetOpen" data-id="' + s.code + '"><div class="row"><div class="b">' + esc(s.name) + '</div><div class="s m num">' + money(s.total) + '</div></div><div class="bar" aria-hidden="true"><i style="width:' + Math.min(100, p) + '%"></i></div><div class="s num">Approved so far: ' + money(u) + ' (' + p + '%) · ' + plural(s.lines.length, 'line', 'lines') + '</div>';
+    if (open === s.code) s.lines.forEach(function (L) { var x = lineUse(L.id); h += '<div class="row s" style="border-top:1px solid var(--line);padding-top:6px"><div>' + esc(L.name) + '</div><div class="num">' + money(x.used) + ' of ' + money(L.total) + '</div></div>'; });
+    h += '</div>';
+  });
+  return h + '</main>';
+}
+
+var H = {
+  tab: function (el) { if (el.dataset.id === 'new' && S.ui.tab !== 'new') { S.ui.form = {}; } go(el.dataset.id); },
+  noticeOk: function () { S.notices = []; render(); },
+  connect: function () {
+    var cfg = parseLink(S.ui.form.link);
+    if (!cfg) { S.ui.err = 'This is not a CYP FIN link. Copy the whole link from the message you received.'; render(); return; }
+    startWith(cfg);
+  },
+  demo: function () { S.local = demoDb(); S.files = {}; KV.set('localdb', S.local); startWith({ mode: 'demo', key: 'local' }); },
+  localOnly: function () { S.local = null; S.files = {}; KV.set('localdb', null); startWith({ mode: 'local', key: 'local' }); },
+  forget: function () { S.cfg = null; KV.set('cfg', null); S.users = []; KV.set('users', []); S.ui = { screen: 'start', tab: '', form: {}, modal: null, m: {}, month: '', pick: null, err: '', msg: '' }; render(); },
+  firstAdmin: function () {
+    var f = S.ui.form, name = String(f.name || '').trim();
+    if (!name) { S.ui.err = 'Write your name.'; return render(); }
+    if (!pinOk(f.pin)) { S.ui.err = 'The PIN must be 4 to 8 numbers.'; return render(); }
+    if (f.pin !== f.pin2) { S.ui.err = 'The two PINs are not the same.'; return render(); }
+    var id = uid(), salt = uid(), cred = credOf(salt, f.pin);
+    call({ action: 'first_admin', id: id, name: name, role: f.role || 'viewer', salt: salt, cred: cred }).then(function (res) {
+      if (!res.ok) { S.ui.err = errText(res.error); return render(); }
+      S.users = res.users; KV.set('users', S.users); enter(finFind(S.users, id), cred);
+    }).catch(function () { S.ui.err = 'No internet. Try again.'; render(); });
+  },
+  pickUser: function (el) { S.ui.pick = finFind(S.users, el.dataset.id); S.ui.form = {}; S.ui.err = ''; S.ui.msg = ''; S.ui.keepScroll = false; render(); var p = document.getElementById('lg-pin'); if (p) p.focus(); },
+  back: function () { S.ui.pick = null; S.ui.err = ''; render(); },
+  login: function () {
+    var u = S.ui.pick, pin = S.ui.form.pin, cred = credOf(u.salt, pin || '');
+    if (!pinOk(pin)) { S.ui.err = 'Write your PIN.'; return render(); }
+    call({ action: 'login', user: u.id, cred: cred }).then(function (res) {
+      S.online = true;
+      if (res.ok) return enter(res.me, cred);
+      S.ui.err = res.error === 'locked' ? 'Too many wrong PINs. Wait one minute.' : res.error === 'pin' ? 'Wrong PIN.' : res.error === 'user' ? 'This person cannot enter. Ask the administrator.' : errText(res.error);
+      S.ui.form.pin = ''; render();
+    }).catch(function () {
+      S.online = false;
+      if (S.verif[u.id] && S.verif[u.id] === sha256('v:' + cred)) return enter(u, cred);
+      S.ui.err = S.verif[u.id] ? 'Wrong PIN.' : 'No internet. The first time on this phone you need internet.'; S.ui.form.pin = ''; render();
+    });
+  },
+  signOutAsk: function () { var q = myQueue().length; openModal({ type: 'ask', title: 'Sign out?', text: q ? q + ' changes are not sent yet. They stay on this phone and go when you sign in again with internet.' : 'You will need your PIN to enter again.', yes: 'signOut', yesText: 'Sign out' }); },
+  signOut: function () { signOut(''); },
+  setPrio: function (el) { S.ui.form.prio = el.dataset.id; S.ui.err = ''; render(); },
+  setPay: function (el) { S.ui.form.pay = el.dataset.id; render(); },
+  askNow: function (el) {
+    var x = finFind(V().deadlines, el.dataset.id); if (!x) return;
+    S.ui.form = { section: x.section, what: x.what, amount: String(x.amount), line: x.line || '', needed: x.date, pay: x.pay || 'bank', deadline: x.id };
+    go('new');
+  },
+  send: function () {
+    var f = S.ui.form, miss = [], amount = Number(f.amount), short = isShort();
+    if (!f.section) miss.push('the section'); if (!String(f.what || '').trim()) miss.push('what you need'); if (!(amount > 0)) miss.push('the amount');
+    if (!f.line) miss.push('the budget line'); if (!f.prio) miss.push('the priority'); if (!finIsDate(f.needed)) miss.push('the date');
+    if (short && !f.reason) miss.push('why it is an Emergency'); if (short && !String(f.why || '').trim()) miss.push('a few words to explain');
+    if (miss.length) { S.ui.err = 'Still missing: ' + miss.join(', ') + '.'; return render(); }
+    var res = act('req_new', { id: uid(), section: f.section, what: f.what, amount: amount, line: f.line, lineName: f.line === 'none' ? 'Not in the budget' : (LINE[f.line] ? LINE[f.line].name : ''), prio: f.prio, needed: f.needed, pay: f.pay, reason: f.reason || '', why: f.why || '', deadline: f.deadline || '', photo: f.photo || null, created: today() });
+    if (!res.ok) { S.ui.err = errText(res.error); return render(); }
+    S.ui.form = {};
+    go('mine'); S.ui.msg = 'Sent to the Director.'; render();
+  },
+  openReq: function (el) { openModal({ type: 'req', id: el.dataset.id }); },
+  closeModal: function () { S.ui.modal = null; S.ui.merr = ''; render(); },
+  modalBg: function (el, ev) { if (ev.target === el) H.closeModal(); },
+  cancelReq: function (el) { var r = act('req_cancel', { id: el.dataset.id }); if (!r.ok) { S.ui.merr = errText(r.error); } render(); },
+  seeFile: function (el) {
+    var x = S.ui.modal, id = el.dataset.id; x.img = ''; x.wait = 'Opening the photo...'; render();
+    if (id === 'pending') { x.wait = 'The photo is still on the phone of who added it. It arrives when that phone has internet.'; return render(); }
+    call({ action: 'file_get', user: S.me.id, cred: S.cred, id: id }).then(function (res) { x.wait = ''; if (res.ok) x.img = 'data:' + res.mime + ';base64,' + res.b64; else x.wait = 'The photo was not found.'; render(); }).catch(function () { x.wait = 'No internet: the photo cannot be opened now.'; render(); });
+  },
+  receipt: function (el) { var r = act('receipt', { id: el.dataset.id, photo: S.ui.m.photo || null }); if (!r.ok) S.ui.merr = errText(r.error); else S.ui.modal = null; render(); },
+  approve: function (el) { var r = act('decide', { id: el.dataset.id, status: 'Approved', note: '' }); if (!r.ok) S.notices.push(errText(r.error)); render(); },
+  later: function (el) { openModal({ type: 'note', id: el.dataset.id, status: 'Next week' }); },
+  refuse: function (el) { openModal({ type: 'note', id: el.dataset.id, status: 'Not approved' }); },
+  decideSave: function () { var x = S.ui.modal, r = act('decide', { id: x.id, status: x.status, note: S.ui.m.note || '' }); if (!r.ok) { S.ui.merr = errText(r.error); } else S.ui.modal = null; render(); },
+  undo: function (el) { var r = act('decide', { id: el.dataset.id, status: 'Waiting', note: '' }); if (!r.ok) S.notices.push(errText(r.error)); render(); },
+  paid: function (el) { var r = act('pay', { id: el.dataset.id }); if (!r.ok) S.notices.push(errText(r.error)); render(); },
+  unpay: function (el) { var r = act('unpay', { id: el.dataset.id }); if (!r.ok) S.notices.push(errText(r.error)); render(); },
+  weekSave: function () {
+    var a = Number(S.ui.form.week);
+    if (S.ui.form.week == null || S.ui.form.week === '' || !(a >= 0)) { S.notices.push('Write the money for this week.'); return render(); }
+    var r = act('week_money', { week: today(), amount: a }); if (!r.ok) S.notices.push(errText(r.error)); delete S.ui.form.week; render();
+  },
+  dlNew: function () { openModal({ type: 'dl', id: '' }, { section: S.me.sections.length === 1 ? S.me.sections[0] : '' }); },
+  dlEdit: function (el) { var x = finFind(V().deadlines, el.dataset.id); if (!x) return; openModal({ type: 'dl', id: x.id }, { section: x.section, what: x.what, amount: x.amount, line: x.line, date: x.date, monthly: x.repeat === 'monthly', cash: x.pay === 'cash' }); },
+  dlSave: function () {
+    var m = S.ui.m, x = S.ui.modal, miss = [];
+    if (!m.section) miss.push('the section'); if (!String(m.what || '').trim()) miss.push('what it is'); if (!(Number(m.amount) > 0)) miss.push('the amount'); if (!finIsDate(m.date)) miss.push('the date');
+    if (miss.length) { S.ui.merr = 'Still missing: ' + miss.join(', ') + '.'; return render(); }
+    var r = act('dl_save', { id: x.id || uid(), section: m.section, what: m.what, amount: Number(m.amount), line: m.line || '', lineName: LINE[m.line] ? LINE[m.line].name : '', date: m.date, repeat: m.monthly ? 'monthly' : '', pay: m.cash ? 'cash' : 'bank' });
+    if (!r.ok) S.ui.merr = errText(r.error); else S.ui.modal = null; render();
+  },
+  dlDel: function (el) { var r = act('dl_del', { id: el.dataset.id }); if (!r.ok) S.ui.merr = errText(r.error); else S.ui.modal = null; render(); },
+  allReqs: function () { S.ui.form = {}; go('all'); },
+  people: function () { go('people'); },
+  personNew: function () { openModal({ type: 'person', id: '' }, { role: 'head', sections: [], active: true }); },
+  personEdit: function (el) { var u = finFind(V().users, el.dataset.id); if (!u) return; openModal({ type: 'person', id: u.id }, { name: u.name, role: u.role, sections: (u.sections || []).slice(), admin: u.admin, active: u.active !== false, pin: '' }); },
+  personSave: function () {
+    var m = S.ui.m, x = S.ui.modal, d = { id: x.id || uid(), name: m.name, role: m.role || 'head', sections: m.sections || [], admin: !!m.admin, active: m.active !== false };
+    if (!String(m.name || '').trim()) { S.ui.merr = 'Write the name.'; return render(); }
+    if (!x.id && !pinOk(m.pin)) { S.ui.merr = 'The PIN must be 4 to 8 numbers.'; return render(); }
+    if (m.pin && !pinOk(m.pin)) { S.ui.merr = 'The PIN must be 4 to 8 numbers.'; return render(); }
+    if (m.pin) { d.salt = uid(); d.cred = credOf(d.salt, m.pin); }
+    var r = act('user_save', d); if (!r.ok) S.ui.merr = errText(r.error); else S.ui.modal = null; render();
+  },
+  rules: function () { var s = V().settings; openModal({ type: 'rules' }, { noticeDays: s.noticeDays, approvalDay: s.approvalDay, countFrom: s.countFrom }); },
+  rulesSave: function () { var m = S.ui.m, r = act('set', { noticeDays: m.noticeDays, approvalDay: m.approvalDay, countFrom: m.countFrom }); if (!r.ok) S.ui.merr = errText(r.error); else S.ui.modal = null; render(); },
+  pinOpen: function () { openModal({ type: 'pin' }, {}); },
+  pinSave: function () {
+    var m = S.ui.m;
+    if (credOf(S.me.salt, m.old || '') !== S.cred) { S.ui.merr = 'The PIN now is not right.'; return render(); }
+    if (!pinOk(m.pin)) { S.ui.merr = 'The new PIN must be 4 to 8 numbers.'; return render(); }
+    if (m.pin !== m.pin2) { S.ui.merr = 'The two new PINs are not the same.'; return render(); }
+    if (!S.online && S.cfg.mode === 'shared') { S.ui.merr = 'No internet. Change the PIN when there is internet.'; return render(); }
+    var salt = uid(), r = act('pin', { salt: salt, cred: credOf(salt, m.pin) });
+    if (!r.ok) S.ui.merr = errText(r.error); else { S.ui.modal = null; S.notices.push('PIN changed.'); } render();
+  },
+  invite: function () {
+    var link = staffLink(), msg = 'CYP FIN, to ask for money and to approve payments.\n1. Open this link with internet: ' + link + '\n2. Choose your name.\n3. Write the PIN I give you. You can change it in More.';
+    openModal({ type: 'text', title: 'Invite the staff', html: '<div class="s m">Send this message. Give each person their own PIN in a separate message.</div><textarea class="in" id="inv-text" rows="7" readonly>' + esc(msg) + '</textarea><div class="btns"><button type="button" class="btn pri" data-a="copyInvite">Copy</button><a class="btn" href="https://wa.me/?text=' + encodeURIComponent(msg) + '">WhatsApp</a></div>' });
+  },
+  copyInvite: function () { var t = document.getElementById('inv-text'); if (!t) return; t.select(); try { navigator.clipboard.writeText(t.value).catch(function () { document.execCommand('copy'); }); } catch (e) { try { document.execCommand('copy'); } catch (x) {} } S.notices.push('Copied.'); render(); },
+  installHelp: function () {
+    var ua = navigator.userAgent, ios = /iPhone|iPad|iPod/.test(ua), steps = ios ? 'In Safari: tap Share, then "Add to Home Screen".' : /Android/.test(ua) ? 'In Chrome: tap the three dots, then "Install app" or "Add to Home screen".' : 'In Chrome or Edge: use the install icon in the address bar. In Safari on Mac: File, then "Add to Dock".';
+    openModal({ type: 'text', title: 'Put CYP FIN on this phone', html: (S.installEvt ? '<button type="button" class="btn pri" data-a="install">Install CYP FIN</button>' : '') + '<div>' + steps + '</div><div class="s m">Open the app once with internet. After that it also opens without internet, and what you write is sent when internet comes back.</div>' });
+  },
+  install: function () { if (S.installEvt) { S.installEvt.prompt(); S.installEvt = null; } H.closeModal(); },
+  syncNow: function () { sync().then(render); },
+  monthMove: function (el) { var m = S.ui.month || today().slice(0, 7), y = Number(m.slice(0, 4)), mo = Number(m.slice(5)) + Number(el.dataset.id); if (mo < 1) { mo = 12; y--; } if (mo > 12) { mo = 1; y++; } S.ui.month = y + '-' + (mo < 10 ? '0' : '') + mo; render(); },
+  budget: function () { S.ui.form = {}; go('budget'); },
+  budgetOpen: function (el) { S.ui.form.bsec = S.ui.form.bsec === el.dataset.id ? '' : el.dataset.id; render(); },
+  exportPage: function () {
+    var sheets = exportSheets(); if (!sheets.length) return;
+    saveFile('CYP-FIN_' + EXPORTS[S.ui.tab] + '_' + today() + '.xlsx', makeXlsx(sheets));
+  }
+};
+
+document.addEventListener('click', function (ev) {
+  var el = ev.target.closest('[data-a]'); if (!el) return;
+  var inner = ev.target.closest('button,a,input,select,textarea,label');
+  if (inner && inner !== el && el.contains(inner) && !inner.dataset.a) return; /* a control inside a card */
+  if (inner && inner !== el && inner.dataset.a && el.contains(inner)) el = inner;
+  var fn = H[el.dataset.a]; if (fn) fn(el, ev);
+});
+document.addEventListener('input', function (ev) {
+  var t = ev.target;
+  if (S.ui.err && (t.dataset.f || t.dataset.m)) { S.ui.err = ''; var eb = document.querySelector('main .box.err'); if (eb) eb.remove(); }
+  if (t.dataset.f) {
+    S.ui.form[t.dataset.f] = t.value;
+    if (t.dataset.f === 'section') { S.ui.form.line = ''; }
+    if (t.dataset.r) { render(); return; }
+    if (t.dataset.b) refreshBoxes();
+  } else if (t.dataset.m) {
+    S.ui.m[t.dataset.m] = t.type === 'checkbox' ? t.checked : t.value;
+    if (t.dataset.r) { if (t.dataset.m === 'section') S.ui.m.line = ''; render(); }
+  } else if (t.dataset.sec) {
+    var list = S.ui.m.sections || (S.ui.m.sections = []), i = list.indexOf(t.dataset.sec);
+    if (t.checked && i < 0) list.push(t.dataset.sec); if (!t.checked && i >= 0) list.splice(i, 1);
+  }
+});
+document.addEventListener('change', function (ev) {
+  var t = ev.target; if (!t.dataset || !t.dataset.photo || !t.files || !t.files[0]) return;
+  var kind = t.dataset.photo;
+  readPhoto(t.files[0]).then(function (p) {
+    if (kind === 'form') { S.ui.form.photo = p; render(); }
+    else if (kind === 'receipt') { S.ui.m.photo = p; render(); }
+    else if (kind === 'quote') { var r = act('quote_add', { id: S.ui.modal.id, photo: p }); if (!r.ok) S.ui.merr = errText(r.error); render(); }
+  }).catch(function () { if (S.ui.modal) S.ui.merr = ERR.photo; else S.ui.err = ERR.photo; render(); });
+});
+document.addEventListener('keydown', function (ev) {
+  if (ev.key !== 'Enter') return;
+  var id = ev.target && ev.target.id;
+  if (ev.target && ev.target.tagName === 'DIV' && ev.target.dataset.a && H[ev.target.dataset.a]) { H[ev.target.dataset.a](ev.target, ev); return; }
+  if (id === 'lg-pin') H.login(); else if (id === 'st-link') H.connect(); else if (id === 'fa-pin2') H.firstAdmin();
+});
+window.addEventListener('online', function () { sync(); });
+window.addEventListener('offline', function () { S.online = false; render(); });
+window.addEventListener('beforeinstallprompt', function (e) { e.preventDefault(); S.installEvt = e; });
+document.addEventListener('visibilitychange', function () { if (!document.hidden) sync(); });
+setInterval(function () { if (!document.hidden && S.me && S.cfg && S.cfg.mode === 'shared') sync(); }, 45000);
+
+/* ================= start ================= */
+(function boot() {
+  render();
+  var fromLink = parseLink(location.search + location.hash);
+  if (fromLink) { try { history.replaceState(null, '', location.pathname); } catch (e) {} }
+  Promise.all([KV.get('cfg'), KV.get('queue'), KV.get('verif'), KV.get('users'), KV.get('localdb'), KV.get('localfiles')]).then(function (a) {
+    S.queue = a[1] || []; S.verif = a[2] || {}; S.users = a[3] || []; S.local = a[4] || null; S.files = a[5] || {};
+    var cfg = fromLink || a[0];
+    if (!cfg) { S.ui.screen = 'start'; return render(); }
+    return startWith(cfg);
+  });
+  if ('serviceWorker' in navigator && location.protocol === 'https:') { try { navigator.serviceWorker.register('sw.js').catch(function () {}); } catch (e) {} }
+})();
+</script>
+</body>
+</html>
