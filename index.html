@@ -376,7 +376,7 @@ function weekPlan() {
 /* ================= the spending plan: what the budget says is needed, and when ================= */
 var PLAN_EVENTS = [[/youth day|easter/i, 3], [/african child/i, 6], [/independence/i, 10], [/christmas/i, 12]];
 /* fixed costs: pay of the staff and bills. The management pays them, the sections do not ask for them */
-var PLAN_FIXED = /salar|napsa|wage|coach(?!es camp)|logistic manager|electricity|water bill|garbage|police service|cleaning service|subscription|internet|insurance|road tax/i;
+var PLAN_FIXED = /\bsalar|\bnapsa\b|\bwages?\b|head coach|assistant coach|co-coach|logistic manager|workers compensation|electricity|water bill|garbage|police service|cleaning service|subscription|internet|insurance|road tax|ground rates/i;
 function lineFixed(L) { return !!planRule(L).fixed; }
 function canPlan() { return S.me.role === 'accountant' || S.me.role === 'director' || !!S.me.admin; }
 function monthlySecs() { return V().settings.monthly || ['SCH', 'FAM']; }
