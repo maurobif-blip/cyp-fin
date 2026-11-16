@@ -665,8 +665,10 @@ function scrNew() {
   return h;
 }
 function isOpenReq(r) { return r.status === 'Waiting' || r.status === 'To revise' || r.status === 'Next week' || r.status === 'Approved'; }
+/* a fixed cost sent by the management: the section head does not handle it and does not see it */
+function notMine(r) { return !!S.me && S.me.role === 'head' && r.by !== S.me.id && !!LINE[r.line] && lineFixed(LINE[r.line]); }
 function myOpen() {
-  return V().requests.filter(function (r) { return (r.by === S.me.id || S.me.sections.indexOf(r.section) >= 0) && isOpenReq(r); })
+  return V().requests.filter(function (r) { return (r.by === S.me.id || S.me.sections.indexOf(r.section) >= 0) && isOpenReq(r) && !notMine(r); })
     .sort(function (a, b) { var ra = a.status === 'To revise', rb = b.status === 'To revise'; if (ra !== rb) return ra ? -1 : 1; return (b.received || '') < (a.received || '') ? -1 : 1; });
 }
 function scrMine() {
@@ -823,8 +825,8 @@ function scrMore() {
   return h + '<div class="s m center">CYP FIN ' + FIN_VERSION + '</div></main>';
 }
 function scrAll() {
-  var v = V(), f = S.ui.form, list = v.requests.filter(function (r) { return (!f.fStatus || r.status === f.fStatus) && (!f.fSec || r.section === f.fSec); }).sort(function (a, b) { return (b.received || '') < (a.received || '') ? -1 : 1; });
-  var secs = {}; v.requests.forEach(function (r) { secs[r.section] = 1; });
+  var v = V(), f = S.ui.form, list = v.requests.filter(function (r) { return !notMine(r) && (!f.fStatus || r.status === f.fStatus) && (!f.fSec || r.section === f.fSec); }).sort(function (a, b) { return (b.received || '') < (a.received || '') ? -1 : 1; });
+  var secs = {}; v.requests.forEach(function (r) { if (!notMine(r)) secs[r.section] = 1; });
   var h = '<main><div class="row" style="align-items:center"><h1>All requests</h1><button type="button" class="btn" data-a="tab" data-id="more">Back</button></div>' +
     '<div class="btns"><select class="in" data-f="fStatus" data-r="1" aria-label="Status">' + options([['', 'Every status']].concat(FIN_STATUSES.map(function (s) { return [s, PILL[s][0]]; })), f.fStatus) + '</select><select class="in" data-f="fSec" data-r="1" aria-label="Section">' + options([['', 'Every section']].concat(Object.keys(secs).map(function (c) { return [c, secName(c)]; })), f.fSec) + '</select></div>' +
     '<div class="s m">' + plural(list.length, 'request', 'requests') + '</div>';
@@ -1193,7 +1195,7 @@ function exportSheets() {
     rq('Paid this week', v.requests.filter(function (r) { return r.status === 'Paid' && r.paidAt && finWeekKey(finToday(r.paidAt)) === w.key; }));
     weekSheet();
   } else if (t === 'rec') rq('Receipts missing', v.requests.filter(function (r) { return r.status === 'Paid' && !r.receipt; }));
-  else if (t === 'all') rq('Requests', v.requests.filter(function (r) { return (!f.fStatus || r.status === f.fStatus) && (!f.fSec || r.section === f.fSec); }).sort(byNew));
+  else if (t === 'all') rq('Requests', v.requests.filter(function (r) { return !notMine(r) && (!f.fStatus || r.status === f.fStatus) && (!f.fSec || r.section === f.fSec); }).sort(byNew));
   else if (t === 'month') {
     var m = S.ui.month || today().slice(0, 7), rows = {}, list = v.requests.filter(function (r) { return r.created.slice(0, 7) === m && r.status !== 'Cancelled'; });
     list.forEach(function (r) { var g = rows[r.section] || (rows[r.section] = { code: r.section, n: 0, em: 0, amount: 0, cash: 0, rec: 0 }); g.n++; g.amount += r.amount; if (r.emergency) g.em++; if (r.pay === 'cash') g.cash += r.amount; if (r.status === 'Paid' && !r.receipt) g.rec++; });
