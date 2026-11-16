@@ -124,7 +124,7 @@ img.photo{max-width:100%;border-radius:8px;border:1px solid var(--line)}
 <script src="core.js"></script>
 <script>
 'use strict';
-var FIN_VERSION = 'alpha 0.6';
+var FIN_VERSION = 'alpha 0.7';
 
 /* ================= small tools ================= */
 function esc(s) { return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]; }); }
@@ -349,7 +349,7 @@ function weekPlan() {
   if (canMoney) h += field('Money expected this week, in Kwacha', 'acc-exp', input('acc-exp', 'wexp', f.wexp != null ? f.wexp : (w.exp != null ? w.exp : ''), 'number', 'min="0" inputmode="decimal"')) +
     field('Money received, in Kwacha', 'acc-week', input('acc-week', 'week', f.week != null ? f.week : (w.rec != null ? w.rec : ''), 'number', 'min="0" inputmode="decimal"')) +
     field('Date received', 'acc-date', input('acc-date', 'wdate', f.wdate != null ? f.wdate : (w.recDate || today()), 'date', 'max="' + today() + '"')) + '<button type="button" class="btn" data-a="weekSave">Save</button>';
-  var pw = planItems(w.key, finAddDays(w.key, 6)).filter(function (x) { return monthlySecs().indexOf(x.sec) < 0; }), pt = 0, pn = 0;
+  var pw = planItems(w.key, finAddDays(w.key, 6)).filter(function (x) { return x.fixed || monthlySecs().indexOf(x.sec) < 0; }), pt = 0, pn = 0;
   pw.forEach(function (x) { pt += x.amount; if (!x.req) pn += x.amount; });
   h += '<div class="s num" id="week-money"><div>Planned from the budget: ' + money(pt) + (pn ? ' · not asked ' + money(pn) : '') + '</div><div>Expected: ' + (w.exp != null ? money(w.exp) : 'not written') + '</div><div>Received: ' + (w.onRec ? money(w.rec) + (w.recDate ? ' on ' + day(w.recDate) : '') : 'nothing yet') + '</div><div>Approved this week: ' + money(w.used) + '</div></div>';
   if (w.set) h += '<div class="num b ' + (w.left >= 0 ? 'good' : 'bad') + '" style="font-size:18px">' + (w.left >= 0 ? 'Left: ' + money(w.left) : 'Short by ' + money(-w.left)) + '</div><div class="s m">On the money ' + (w.onRec ? 'received' : 'expected') + '.</div>';
@@ -375,6 +375,9 @@ function weekPlan() {
 }
 /* ================= the spending plan: what the budget says is needed, and when ================= */
 var PLAN_EVENTS = [[/youth day|easter/i, 3], [/african child/i, 6], [/independence/i, 10], [/christmas/i, 12]];
+/* fixed costs: pay of the staff and bills. The management pays them, the sections do not ask for them */
+var PLAN_FIXED = /salar|napsa|wage|coach(?!es camp)|logistic manager|electricity|water bill|garbage|police service|cleaning service|subscription|internet|insurance|road tax/i;
+function lineFixed(L) { return !!planRule(L).fixed; }
 function canPlan() { return S.me.role === 'accountant' || S.me.role === 'director' || !!S.me.admin; }
 function monthlySecs() { return V().settings.monthly || ['SCH', 'FAM']; }
 function ymText(ym) { return MOL[Number(ym.slice(5)) - 1] + ' ' + ym.slice(0, 4); }
@@ -382,7 +385,8 @@ function nextYm(ym) { return finAddMonth(ym + '-01').slice(0, 7); }
 /* the rule a line gets from the budget alone: how many times a year it is in the budget */
 function planDefault(L) {
   var f = L.freq, months = [], when = 'w1', times = 1, prio = 'P2', i;
-  if (!(L.total > 0)) return { months: [], when: 'w1', times: 1, amount: 0, prio: prio };
+  var fixed = PLAN_FIXED.test(L.name);
+  if (!(L.total > 0)) return { months: [], when: 'w1', times: 1, amount: 0, prio: prio, fixed: fixed };
   if (f >= 12) {
     for (i = 1; i <= 12; i++) months.push(i); prio = 'P1';
     if (/salar|napsa|wage|coach/i.test(L.name)) when = 'w3';
@@ -395,14 +399,14 @@ function planDefault(L) {
     if (!months.length && (L.sec === 'SCH' || L.sec === 'CSC')) months = [1];
   }
   var n = months.length * times;
-  return { months: months, when: when, times: times, amount: n ? Math.round(L.total / n * 100) / 100 : 0, prio: prio };
+  return { months: months, when: when, times: times, amount: n ? Math.round(L.total / n * 100) / 100 : 0, prio: prio, fixed: fixed };
 }
-function planRule(L) { var o = (V().settings.plan || {})[L.id]; return o ? { months: o.months || [], when: o.when, times: o.times, amount: o.amount, prio: o.prio, own: true } : planDefault(L); }
+function planRule(L) { var o = (V().settings.plan || {})[L.id]; return o ? { months: o.months || [], when: o.when, times: o.times, amount: o.amount, prio: o.prio, fixed: o.fixed != null ? !!o.fixed : PLAN_FIXED.test(L.name), own: true } : planDefault(L); }
 function planDays(r) { if (r.when !== 'spread') return [{ w1: 1, w2: 8, w3: 15, w4: 22 }[r.when] || 1]; var a = []; for (var i = 0; i < r.times; i++) a.push(1 + Math.round(i * 28 / r.times)); return a; }
 function planText(r) {
-  if (!r.months.length || !r.amount) return 'No month yet';
+  if (!r.months.length || !r.amount) return 'No month yet' + (r.fixed ? ' · fixed' : '');
   var n = r.months.length * (r.when === 'spread' ? r.times : 1);
-  return (r.months.length === 12 ? 'Every month' : r.months.map(function (m) { return MO[m - 1]; }).join(', ')) + ' · ' + (r.when === 'spread' ? plural(r.times, 'time', 'times') + ' a month' : 'week ' + r.when.slice(1)) + ' · ' + money(r.amount) + (n > 1 ? ' each' : '');
+  return (r.months.length === 12 ? 'Every month' : r.months.map(function (m) { return MO[m - 1]; }).join(', ')) + ' · ' + (r.when === 'spread' ? plural(r.times, 'time', 'times') + ' a month' : 'week ' + r.when.slice(1)) + ' · ' + money(r.amount) + (n > 1 ? ' each' : '') + (r.fixed ? ' · fixed' : '');
 }
 /* every planned expense between two dates, with the request that asked for it, if any */
 function planItems(from, to) {
@@ -416,7 +420,7 @@ function planItems(from, to) {
       planDays(r).forEach(function (dd, k) {
         var date = ym + '-' + ('0' + dd).slice(-2), id = L.id + '|' + ym + '|' + k;
         if (date < from || date > to || date < cf) return;
-        out.push({ key: id, line: L.id, sec: code, name: L.name, date: date, amount: r.amount, prio: r.prio, req: v._asked[id] || null });
+        out.push({ key: id, line: L.id, sec: code, name: L.name, date: date, amount: r.amount, prio: r.prio, fixed: !!r.fixed, req: v._asked[id] || null });
       });
     }); });
     ym = nextYm(ym);
@@ -427,7 +431,7 @@ function planItems(from, to) {
 /* the monthly request of a section: the planned lines of that month, one amount for each line */
 function monthlyLines(code, ym) {
   var map = {}, out = [];
-  planItems(ym + '-01', ym + '-31').forEach(function (x) { if (x.sec !== code) return; if (!map[x.line]) { map[x.line] = { line: x.line, name: x.name, amount: 0 }; out.push(map[x.line]); } map[x.line].amount = Math.round((map[x.line].amount + x.amount) * 100) / 100; });
+  planItems(ym + '-01', ym + '-31').forEach(function (x) { if (x.sec !== code || x.fixed) return; if (!map[x.line]) { map[x.line] = { line: x.line, name: x.name, amount: 0 }; out.push(map[x.line]); } map[x.line].amount = Math.round((map[x.line].amount + x.amount) * 100) / 100; });
   return out;
 }
 function monthlyReq(code, ym) { var rs = V().requests; for (var i = 0; i < rs.length; i++) if (rs[i].month === ym && rs[i].section === code && rs[i].status !== 'Cancelled' && rs[i].status !== 'Not approved') return rs[i]; return null; }
@@ -511,7 +515,8 @@ function input(id, key, val, type, extra) { return '<input class="in" id="' + id
 function options(list, val) { return list.map(function (o) { return '<option value="' + esc(o[0]) + '"' + (String(o[0]) === String(val == null ? '' : val) ? ' selected' : '') + '>' + esc(o[1]) + '</option>'; }).join(''); }
 function lineOptions(code, val) {
   var s = SEC[code]; if (!s) return '<option value="">Choose the section first</option>';
-  return options([['', 'Choose one']].concat(s.lines.map(function (l) { return [l.id, l.name]; })).concat([['none', 'Not in the budget']]), val);
+  var hide = S.me.role === 'head';
+  return options([['', 'Choose one']].concat(s.lines.filter(function (l) { return !hide || l.id === val || !lineFixed(l); }).map(function (l) { return [l.id, l.name]; })).concat([['none', 'Not in the budget']]), val);
 }
 
 function scrStart() {
@@ -576,7 +581,7 @@ function askLine(date) { var v = V(), t = today(), by = finAskBy(date, v.setting
 function scrSoon() {
   var v = V(), t = today(), mon = monthlySecs(), multi = S.me.sections.length > 1, canDl = finCanDeadline(S.me, ''), any = false;
   var mine = v.deadlines.filter(function (x) { return !x.deleted && !x.asked && S.me.sections.indexOf(x.section) >= 0; }).map(function (x) { x.v = deadlineView(x); return x; }).sort(function (a, b) { return a.v.askBy < b.v.askBy ? -1 : 1; });
-  var planned = planItems(finAddDays(t, -14), finAddDays(t, 35)).filter(function (x) { return !x.req && S.me.sections.indexOf(x.sec) >= 0 && mon.indexOf(x.sec) < 0; });
+  var planned = planItems(finAddDays(t, -14), finAddDays(t, 35)).filter(function (x) { return !x.req && !x.fixed && S.me.sections.indexOf(x.sec) >= 0 && mon.indexOf(x.sec) < 0; });
   var h = '<main><h1>Coming up</h1>';
   S.me.sections.forEach(function (c) {
     if (mon.indexOf(c) < 0) return;
@@ -713,7 +718,7 @@ function scrDecide() {
 }
 function scrDead() {
   var v = V(), t = today(), f = S.ui.form, mon = monthlySecs(), wk0 = finWeekKey(t), acc = S.me.role === 'accountant';
-  var items = planItems(finAddDays(wk0, -14), finAddDays(wk0, 34)).filter(function (x) { return mon.indexOf(x.sec) < 0; });
+  var items = planItems(finAddDays(wk0, -14), finAddDays(wk0, 34)).filter(function (x) { return x.fixed || mon.indexOf(x.sec) < 0; });
   var groups = [{ key: 'late', label: 'Late, not asked', list: items.filter(function (x) { return x.date < wk0 && !x.req; }) }], total = 0, notAsked = 0, i;
   for (i = 0; i < 5; i++) (function (k) { groups.push({ key: k, label: (i === 0 ? 'This week' : 'Week of ' + day(k)), list: items.filter(function (x) { return finWeekKey(x.date) === k; }) }); })(finAddDays(wk0, 7 * i));
   groups.forEach(function (g, gi) { g.total = 0; g.asked = 0; g.list.forEach(function (x) { g.total += x.amount; if (x.req) g.asked++; else if (gi) notAsked++; }); if (gi) total += g.total; });
@@ -727,7 +732,7 @@ function scrDead() {
       var id = g.key + '|' + c, list = g.list.filter(function (x) { return x.sec === c; }), sum = list.reduce(function (n, x) { return n + x.amount; }, 0), open = f.pOpen === id;
       h += '<button type="button" class="srow" aria-expanded="' + open + '" data-a="pOpen" data-id="' + esc(id) + '"><span class="n">' + esc(secName(c)) + ' (' + list.length + ')</span><span class="num b">' + money(sum) + '</span></button>';
       if (open) list.forEach(function (x) {
-        h += '<div class="prow"><div><div>' + esc(x.name) + '</div><div class="s m num">' + day(x.date) + ' · ' + money(x.amount) + '</div></div>' +
+        h += '<div class="prow"><div><div>' + esc(x.name) + '</div><div class="s m num">' + day(x.date) + ' · ' + money(x.amount) + (x.fixed ? ' · fixed' : '') + '</div></div>' +
           (x.req ? pill(x.req) : acc ? '<button type="button" class="btn pri" data-a="planSend" data-id="' + esc(x.key) + '">Send</button>' : '<span class="s m">Not asked</span>') + '</div>';
       });
     });
@@ -896,6 +901,7 @@ function modal() {
       '<div class="field"><label for="pl-when">When in the month</label><select class="in" id="pl-when" data-m="when" data-r="1">' + options([['w1', 'Week 1'], ['w2', 'Week 2'], ['w3', 'Week 3'], ['w4', 'Week 4'], ['spread', 'Several times']], m.when) + '</select></div>' +
       (m.when === 'spread' ? mField('Times in the month', 'pl-times', 'times', 'number', 'min="1" max="8" inputmode="numeric"') : '') +
       mField('Amount each time, in Kwacha', 'pl-amount', 'amount', 'number', 'min="0" inputmode="decimal"') +
+      '<div class="field"><label for="pl-fixed">Who asks</label><select class="in" id="pl-fixed" data-m="fixed">' + options([['0', 'The section asks'], ['1', 'Fixed: the Accountant sends it']], m.fixed) + '</select></div>' +
       '<div class="field"><label for="pl-prio">Priority</label><select class="in" id="pl-prio" data-m="prio">' + options([['P1', 'P1'], ['P2', 'P2'], ['P3', 'P3']], m.prio) + '</select></div>' + err +
       '<div class="btns"><button type="button" class="btn pri" data-a="planSave">Save</button>' + (x.own ? '<button type="button" class="btn" data-a="planReset">Back to the budget</button>' : '') + close + '</div>';
   }
@@ -1173,10 +1179,10 @@ function exportSheets() {
   else if (t === 'soon') dl('Coming up', v.deadlines.filter(function (x) { return !x.deleted && !x.asked && S.me.sections.indexOf(x.section) >= 0; }));
   else if (t === 'dead') {
     var wk0 = finWeekKey(today()), ms = monthlySecs();
-    out.push({ name: 'Planned', head: ['Week of', 'Date', 'Section', 'Budget line code', 'Budget line', 'Amount (K)', 'Priority', 'Status', 'Request'], rows: planItems(finAddDays(wk0, -14), finAddDays(wk0, 34)).filter(function (x) { return ms.indexOf(x.sec) < 0; }).map(function (x) { return [finWeekKey(x.date), x.date, secName(x.sec), x.line, x.name, x.amount, x.prio, x.req ? (PILL[x.req.status] || PILL.Waiting)[0] : 'Not asked', x.req ? x.req.no || '' : '']; }) });
+    out.push({ name: 'Planned', head: ['Week of', 'Date', 'Section', 'Budget line code', 'Budget line', 'Amount (K)', 'Priority', 'Status', 'Request'], rows: planItems(finAddDays(wk0, -14), finAddDays(wk0, 34)).filter(function (x) { return x.fixed || ms.indexOf(x.sec) < 0; }).map(function (x) { return [finWeekKey(x.date), x.date, secName(x.sec), x.line, x.name + (x.fixed ? ' (fixed)' : ''), x.amount, x.prio, x.req ? (PILL[x.req.status] || PILL.Waiting)[0] : 'Not asked', x.req ? x.req.no || '' : '']; }) });
     dl('Deadlines', v.deadlines.filter(function (x) { return !x.deleted && !x.asked; }));
   } else if (t === 'plan') {
-    out.push({ name: 'Spending plan', head: ['Section', 'Budget line code', 'Budget line', 'Budget (K)', 'Months', 'When in the month', 'Times in the month', 'Amount each time (K)', 'Year by the plan (K)', 'Priority', 'Changed'], rows: [].concat.apply([], FIN_BUDGET.sections.map(function (sx) { return SEC[sx.code].lines.map(function (L) { var r = planRule(L), tm = r.when === 'spread' ? r.times : 1; return [sx.name, L.id, L.name, L.total, r.months.map(function (mm) { return MO[mm - 1]; }).join(', '), r.when === 'spread' ? 'Several times' : 'Week ' + r.when.slice(1), tm, r.amount, r.months.length * tm * r.amount, r.prio, r.own ? 'Yes' : '']; }); })) });
+    out.push({ name: 'Spending plan', head: ['Section', 'Budget line code', 'Budget line', 'Budget (K)', 'Months', 'When in the month', 'Times in the month', 'Amount each time (K)', 'Year by the plan (K)', 'Priority', 'Changed', 'Fixed'], rows: [].concat.apply([], FIN_BUDGET.sections.map(function (sx) { return SEC[sx.code].lines.map(function (L) { var r = planRule(L), tm = r.when === 'spread' ? r.times : 1; return [sx.name, L.id, L.name, L.total, r.months.map(function (mm) { return MO[mm - 1]; }).join(', '), r.when === 'spread' ? 'Several times' : 'Week ' + r.when.slice(1), tm, r.amount, r.months.length * tm * r.amount, r.prio, r.own ? 'Yes' : '', r.fixed ? 'Fixed' : '']; }); })) });
   }
   else if (t === 'decide') {
     rq('To decide', weekWaiting().sort(byPrio));
@@ -1313,12 +1319,12 @@ var H = {
     if (!res.ok) { S.ui.err = res.error === 'again' ? 'This month is already asked.' : errText(res.error); return render(); }
     S.ui.form = {}; go('mine'); S.ui.msg = again ? 'Sent again to the Director.' : 'Sent to the Director.'; render();
   },
-  planEdit: function (el) { var L = LINE[el.dataset.id]; if (!L || !canPlan()) return; var r = planRule(L); openModal({ type: 'plan', id: L.id, own: !!r.own }, { months: r.months.slice(), when: r.when, times: r.times, amount: r.amount, prio: r.prio }); },
+  planEdit: function (el) { var L = LINE[el.dataset.id]; if (!L || !canPlan()) return; var r = planRule(L); openModal({ type: 'plan', id: L.id, own: !!r.own }, { months: r.months.slice(), when: r.when, times: r.times, amount: r.amount, prio: r.prio, fixed: r.fixed ? '1' : '0' }); },
   pmMonth: function (el) { var a = S.ui.m.months, n = Number(el.dataset.id), i = a.indexOf(n); if (i < 0) a.push(n); else a.splice(i, 1); render(); },
   pmAll: function () { S.ui.m.months = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]; render(); },
   pmNone: function () { S.ui.m.months = []; render(); },
   planSave: function () {
-    var x = S.ui.modal, m = S.ui.m, r = act('plan_set', { line: x.id, rule: { months: m.months, when: m.when, times: m.when === 'spread' ? Number(m.times) || 1 : 1, amount: Number(m.amount), prio: m.prio } });
+    var x = S.ui.modal, m = S.ui.m, r = act('plan_set', { line: x.id, rule: { months: m.months, when: m.when, times: m.when === 'spread' ? Number(m.times) || 1 : 1, amount: Number(m.amount), prio: m.prio, fixed: m.fixed === '1' } });
     if (!r.ok) S.ui.merr = errText(r.error); else S.ui.modal = null; S.ui.keepScroll = true; render();
   },
   planReset: function () { var r = act('plan_set', { line: S.ui.modal.id, rule: null }); if (!r.ok) S.ui.merr = errText(r.error); else S.ui.modal = null; S.ui.keepScroll = true; render(); },
