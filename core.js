@@ -2,13 +2,13 @@
    The same text runs in three places: inside the Google script (Code.gs), inside the app
    (to show a change at once and to work on one phone without a database), and in the tests.
    It never talks to Google directly: everything it needs comes through "store". */
-var FIN_STATUSES = ['Waiting', 'Approved', 'Next week', 'Not approved', 'Paid', 'Cancelled'];
+var FIN_STATUSES = ['Waiting', 'To revise', 'Approved', 'Next week', 'Not approved', 'Paid', 'Cancelled'];
 var FIN_ROLES = ['head', 'director', 'accountant', 'viewer'];
 var FIN_TZ_MINUTES = 120; /* Zambia, UTC+2 */
 
 function finNewDb() {
   return { v: 1, rev: 0, seq: 0, users: [], requests: [], deadlines: [], comments: [],
-    settings: { rev: 0, noticeDays: 5, approvalDay: 4, countFrom: '2026-12-01', weeks: {} }, opIds: [] };
+    settings: { rev: 0, noticeDays: 5, approvalDay: 4, countFrom: '2026-12-01', weeks: {}, weeksExp: {}, weeksDate: {} }, opIds: [] };
 }
 
 /* ---- dates: plain yyyy-mm-dd strings, no time zones inside ---- */
@@ -132,9 +132,24 @@ function finApply(db, u, op, nowIso, store, info) {
   }
   if (t === 'week_money') {
     if (u.role !== 'accountant' && u.role !== 'director' && !u.admin) return fail('role');
+    /* two numbers for each week: the money expected, and the money received with its date */
+    if (!finIsDate(d.week)) return fail('fields');
+    var wk = finWeekKey(d.week), kind = d.kind === 'expected' ? 'expected' : 'received';
+    if (!s.weeksExp) s.weeksExp = {};
+    if (!s.weeksDate) s.weeksDate = {};
+    if (d.amount === null || d.amount === '') {
+      if (kind === 'expected') delete s.weeksExp[wk]; else { delete s.weeks[wk]; delete s.weeksDate[wk]; }
+      bump(s); audit('Money for the week', wk + ' ' + kind + ' removed');
+      return { ok: true };
+    }
     var wm = Number(d.amount);
-    if (!finIsDate(d.week) || !(wm >= 0)) return fail('fields');
-    s.weeks[finWeekKey(d.week)] = wm; bump(s); audit('Money for the week', finWeekKey(d.week) + ' K' + wm);
+    if (!(wm >= 0)) return fail('fields');
+    if (kind === 'expected') { s.weeksExp[wk] = wm; audit('Money for the week', wk + ' expected K' + wm); }
+    else {
+      var got = finIsDate(d.date) && d.date <= finAddDays(today, 1) ? d.date : today;
+      s.weeks[wk] = wm; s.weeksDate[wk] = got; audit('Money for the week', wk + ' received K' + wm + ' on ' + got);
+    }
+    bump(s);
     return { ok: true };
   }
 
@@ -185,19 +200,50 @@ function finApply(db, u, op, nowIso, store, info) {
   if (!r) return fail('id');
   if (t === 'req_cancel') {
     if (r.by !== u.id && !finHasSection(u, r.section)) return fail('role');
-    if (r.status !== 'Waiting' && r.status !== 'Next week') return fail('status');
+    if (r.status !== 'Waiting' && r.status !== 'Next week' && r.status !== 'To revise') return fail('status');
     r.status = 'Cancelled'; touched(r, 'Cancelled', '');
     if (r.deadline) { x = finFind(db.deadlines, r.deadline); if (x && x.asked === r.id) { x.asked = ''; bump(x); } }
     return { ok: true };
   }
   if (t === 'decide') {
     if (u.role !== 'director') return fail('role');
-    if (['Approved', 'Next week', 'Not approved', 'Waiting'].indexOf(d.status) < 0) return fail('fields');
+    if (['Approved', 'Next week', 'Not approved', 'Waiting', 'To revise'].indexOf(d.status) < 0) return fail('fields');
     if (r.status === 'Paid' || r.status === 'Cancelled') return fail('status');
+    if (d.status === 'To revise' && !finText(d.note)) return fail('note');
     r.status = d.status; r.note = finText(d.note, 200);
+    if (d.status !== 'Approved') r.payOn = '';
     r.decidedBy = d.status === 'Waiting' ? '' : u.name; r.decidedAt = d.status === 'Waiting' ? '' : nowIso;
     r.week = d.status === 'Approved' ? finWeekKey(today) : '';
     touched(r, d.status === 'Waiting' ? 'Decision undone' : d.status, r.note);
+    return { ok: true };
+  }
+  /* the section changes a request the Director sent back, and it goes to the Director again */
+  if (t === 'req_edit') {
+    if (r.by !== u.id && !finCanAskFor(u, r.section)) return fail('role');
+    if (r.status !== 'To revise') return fail('status');
+    var what2 = finText(d.what, 160), amount2 = Number(d.amount);
+    if (!what2) return fail('what');
+    if (!(amount2 > 0) || amount2 > 100000000) return fail('amount');
+    if (!d.line) return fail('line');
+    if (['P1', 'P2', 'P3'].indexOf(d.prio) < 0) return fail('prio');
+    if (!finIsDate(d.needed)) return fail('date');
+    var notice2 = finWorkDays(r.created, d.needed), em2 = notice2 < s.noticeDays;
+    var reason2 = finText(d.reason, 60) || r.reason, why2 = finText(d.why, 200) || r.why;
+    if (em2 && (!reason2 || !why2)) return fail('reason');
+    r.what = what2; r.amount = Math.round(amount2 * 100) / 100; r.line = String(d.line); r.lineName = finText(d.lineName, 120); r.prio = d.prio; r.needed = d.needed;
+    r.pay = d.pay === 'cash' ? 'cash' : 'bank'; r.notice = notice2; r.emergency = em2; r.reason = em2 ? reason2 : ''; r.why = em2 ? why2 : '';
+    var q2 = saveFile(d.photo, 'quotation-' + r.id + '-' + ((r.revised || 0) + 1)); if (q2) r.quoteFile = q2;
+    r.status = 'Waiting'; r.revised = (r.revised || 0) + 1; r.revisedAt = nowIso; r.askedNote = r.note; r.decidedBy = ''; r.decidedAt = ''; r.week = '';
+    touched(r, 'Sent again after revision', what2 + ' K' + r.amount);
+    return { ok: true };
+  }
+  /* the Accountant says on which day an approved request will be paid */
+  if (t === 'pay_date') {
+    if (u.role !== 'accountant') return fail('role');
+    if (r.status !== 'Approved') return fail('status');
+    if (d.date && !finIsDate(d.date)) return fail('date');
+    r.payOn = d.date ? String(d.date) : '';
+    touched(r, 'Pay date', r.payOn || 'removed');
     return { ok: true };
   }
   if (t === 'pay') {

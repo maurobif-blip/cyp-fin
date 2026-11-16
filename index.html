@@ -96,6 +96,9 @@ img.photo{max-width:100%;border-radius:8px;border:1px solid var(--line)}
 .plan .sech th{font-weight:700;color:var(--blue);padding-top:12px}
 .plan tfoot th,.plan tfoot td{font-weight:700;border-top:2px solid var(--ink)}
 .plan .short{color:var(--bad);font-weight:700}
+#plan-secs tbody td{vertical-align:middle}
+.lnk{background:none;border:0;padding:6px 0;min-height:40px;color:var(--blue);font:inherit;font-weight:700;text-align:left;text-decoration:underline;cursor:pointer}
+.ask{color:var(--em-ink);font-weight:700;overflow-wrap:anywhere}
 .quote{border-left:4px solid var(--edge);padding:2px 0 2px 10px;color:var(--muted);font-size:14px;overflow-wrap:anywhere}
 .cmt{overflow-wrap:anywhere;white-space:pre-wrap}
 @media (min-width:700px){body{background:#E7EBF3}#app{box-shadow:0 0 0 1px var(--line)}.modal{align-items:center}.sheet{border-radius:16px}}
@@ -108,7 +111,7 @@ img.photo{max-width:100%;border-radius:8px;border:1px solid var(--line)}
 <script src="core.js"></script>
 <script>
 'use strict';
-var FIN_VERSION = 'alpha 0.4';
+var FIN_VERSION = 'alpha 0.5';
 
 /* ================= small tools ================= */
 function esc(s) { return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]; }); }
@@ -147,6 +150,7 @@ function sha256(ascii) {
 }
 function credOf(salt, pin) { return sha256(salt + ':' + pin); }
 var IC = {
+  over: '<rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/>',
   talk: '<path d="M4 5h16v11H10l-5 4v-4H4z"/>',
   soon: '<rect x="3" y="5" width="18" height="16" rx="2"/><path d="M3 10h18M8 3v4M16 3v4"/>',
   'new': '<circle cx="12" cy="12" r="9"/><path d="M12 8v8M8 12h8"/>',
@@ -236,7 +240,7 @@ function V() {
 function fresh() { S._v = null; }
 var ERR = { section: 'You cannot do this for that section.', what: 'Write what you need.', amount: 'Write the amount.', line: 'Choose the budget line.', prio: 'Choose the priority.', date: 'Choose the date.',
   reason: 'Say why it is an Emergency.', role: 'Your role cannot do this.', status: 'This request has changed in the meantime. Look at it again.', fields: 'Something is missing.', id: 'Not found.',
-  pin: 'A PIN is needed.', last_admin: 'At least one administrator must stay.', photo: 'The photo could not be read.', server: 'The database had a problem. Try again.', comment: 'Write the comment.', full: 'There are too many comments. Tell the administrator.' };
+  pin: 'A PIN is needed.', last_admin: 'At least one administrator must stay.', photo: 'The photo could not be read.', server: 'The database had a problem. Try again.', note: 'Write what should change.', comment: 'Write the comment.', full: 'There are too many comments. Tell the administrator.' };
 function errText(e) { return ERR[e] || ('Not accepted (' + e + ').'); }
 /* do one change: check it here first, show it at once, send it when there is internet */
 function act(t, d) {
@@ -301,9 +305,11 @@ function sectionUse(code) { var v = V(), sum = 0; v.requests.forEach(function (r
 function planPct(L) { var t = today(); if (L.freq !== 12 || t.slice(0, 4) !== String(FIN_BUDGET.year)) return null; return Math.round(Number(t.slice(5, 7)) / 12 * 100); }
 function emCount(code) { var v = V(), m = today().slice(0, 7), n = 0; v.requests.forEach(function (r) { if (r.section === code && r.emergency && r.created.slice(0, 7) === m && r.status !== 'Cancelled') n++; }); return n; }
 function weekInfo() {
-  var v = V(), wk = finWeekKey(today()), set = v.settings.weeks[wk], used = 0;
+  var v = V(), s = v.settings, wk = finWeekKey(today()), rec = s.weeks[wk], exp = (s.weeksExp || {})[wk], used = 0;
   v.requests.forEach(function (r) { if (r.week === wk && (r.status === 'Approved' || r.status === 'Paid')) used += r.amount; });
-  return { key: wk, set: set != null, money: set || 0, used: used, left: (set || 0) - used };
+  /* what is left is counted on the money received; before it arrives, on the money expected */
+  var onRec = rec != null, set = onRec || exp != null, base = onRec ? rec : (exp != null ? exp : 0);
+  return { key: wk, set: set, money: base, used: used, left: base - used, rec: rec, exp: exp, recDate: (s.weeksDate || {})[wk] || '', onRec: onRec };
 }
 /* ---- the money of the week against what is waiting, by priority ---- */
 /* still to decide: the new requests, and the ones moved here from an earlier week */
@@ -325,10 +331,12 @@ function kw(n) { return (Math.round(Number(n) * 100) / 100).toLocaleString('en-U
 function weekPlan() {
   var d = weekPlanData(), w = d.w, f = S.ui.form, canMoney = S.me.role === 'accountant' || S.me.role === 'director' || !!S.me.admin;
   var h = '<div class="card"><div class="b">Week of ' + day(w.key) + '</div>';
-  if (canMoney) h += field('Money received this week, in Kwacha', 'acc-week', input('acc-week', 'week', f.week != null ? f.week : (w.set ? w.money : ''), 'number', 'min="0" inputmode="decimal"')) + '<button type="button" class="btn" data-a="weekSave">Save</button>';
-  else h += '<div class="num">Money received this week: ' + (w.set ? money(w.money) : 'not written yet') + '</div>';
-  if (w.set) h += '<div class="s num">Received ' + money(w.money) + ' · approved this week ' + money(w.used) + '</div><div class="num b ' + (w.left >= 0 ? 'good' : 'bad') + '" style="font-size:18px">' + (w.left >= 0 ? 'Left: ' + money(w.left) : 'Short by ' + money(-w.left)) + '</div>';
-  else h += '<div class="s m">Approved this week: ' + money(w.used) + '. ' + (canMoney ? 'Write the money received to see what is left.' : 'The money received is not written yet.') + '</div>';
+  if (canMoney) h += field('Money expected this week, in Kwacha', 'acc-exp', input('acc-exp', 'wexp', f.wexp != null ? f.wexp : (w.exp != null ? w.exp : ''), 'number', 'min="0" inputmode="decimal"'), 'The amount announced for this week.') +
+    field('Money received, in Kwacha', 'acc-week', input('acc-week', 'week', f.week != null ? f.week : (w.rec != null ? w.rec : ''), 'number', 'min="0" inputmode="decimal"'), 'Write it the day it arrives.') +
+    field('Date received', 'acc-date', input('acc-date', 'wdate', f.wdate != null ? f.wdate : (w.recDate || today()), 'date', 'max="' + today() + '"')) + '<button type="button" class="btn" data-a="weekSave">Save</button>';
+  h += '<div class="s num" id="week-money"><div>Expected: ' + (w.exp != null ? money(w.exp) : 'not written') + '</div><div>Received: ' + (w.onRec ? money(w.rec) + (w.recDate ? ' on ' + day(w.recDate) : '') : 'nothing yet') + '</div><div>Approved this week: ' + money(w.used) + '</div></div>';
+  if (w.set) h += '<div class="num b ' + (w.left >= 0 ? 'good' : 'bad') + '" style="font-size:18px">' + (w.left >= 0 ? 'Left: ' + money(w.left) : 'Short by ' + money(-w.left)) + '</div><div class="s m">Counted on the money ' + (w.onRec ? 'received' : 'expected') + '.</div>';
+  else h += '<div class="s m">' + (canMoney ? 'Write the money expected or received to see what is left.' : 'The money of this week is not written yet.') + '</div>';
   function left(c) { if (!w.set) return '<td>-</td>'; var n = w.left - c; return n >= 0 ? '<td>' + kw(n) + '</td>' : '<td class="short">short ' + kw(-n) + '</td>'; }
   function row(label, c) { return '<tr><th scope="row" class="b">' + label + '</th><td>' + kw(c) + '</td>' + left(c) + '</tr>'; }
   h += '<table class="plan" id="plan-prio"><caption>Waiting: ' + plural(d.n, 'request', 'requests') + ', in Kwacha</caption><thead><tr><th scope="col">If you approve</th><th scope="col">Asked</th><th scope="col">Then left</th></tr></thead><tbody>' +
@@ -374,7 +382,7 @@ function lineBox(lineId, amount, waiting) {
   if (L.total === 0) h += '<div class="bad">This line has no money in the budget.</div>';
   return h + '</div>';
 }
-var PILL = { 'Waiting': ['Waiting for the Director', ''], 'Approved': ['Approved', 'ok'], 'Next week': ['Moved to next week', 'warn'], 'Not approved': ['Not approved', 'off'], 'Paid': ['Paid', 'ok'], 'Cancelled': ['Cancelled', 'off'] };
+var PILL = { 'Waiting': ['Waiting for the Director', ''], 'Approved': ['Approved', 'ok'], 'Next week': ['Moved to next week', 'warn'], 'To revise': ['To revise', 'warn'], 'Not approved': ['Not approved', 'off'], 'Paid': ['Paid', 'ok'], 'Cancelled': ['Cancelled', 'off'] };
 function pill(r) { var p = PILL[r.status] || PILL.Waiting; return '<span class="pill ' + p[1] + '">' + p[0] + '</span>'; }
 function payText(r) { return r.pay === 'cash' ? 'Cash' : 'Bank or mobile money'; }
 function reqNo(r) { return r.no ? esc(r.no) : 'Not sent yet'; }
@@ -392,7 +400,7 @@ function canAsk() { return S.me && (S.me.sections.length > 0 || S.me.role === 'a
 function askSections() { return S.me.role === 'accountant' ? FIN_BUDGET.sections.map(function (s) { return s.code; }) : S.me.sections; }
 function tabsFor() {
   var r = S.me.role, t = [];
-  if (r === 'director' || r === 'viewer') t = [['decide', 'To decide'], ['dead', 'Deadlines'], ['month', 'By section']];
+  if (r === 'director' || r === 'viewer') t = [['over', 'Overview'], ['decide', 'To decide'], ['dead', 'Deadlines'], ['month', 'By section']];
   else if (r === 'accountant') t = [['pay', 'To pay'], ['rec', 'Receipts'], ['dead', 'Deadlines'], ['new', 'Ask']];
   else t = [['soon', 'Coming up'], ['new', 'New request'], ['mine', 'My requests']];
   if (r === 'director' && canAsk()) t.push(['new', 'Ask']);
@@ -413,9 +421,9 @@ function head() {
   return h;
 }
 function nav() {
-  var n = { decide: 0, pay: 0, rec: 0, dead: 0 }, v = V();
-  v.requests.forEach(function (r) { if (r.status === 'Waiting') n.decide++; if (r.status === 'Approved') n.pay++; if (r.status === 'Paid' && !r.receipt) n.rec++; });
-  var iconOf = { soon: 'soon', 'new': 'new', mine: 'mine', decide: 'decide', dead: 'dead', month: 'month', pay: 'pay', rec: 'rec', more: 'more' };
+  var n = { decide: weekWaiting().length, pay: 0, rec: 0, dead: 0, mine: 0 }, v = V();
+  v.requests.forEach(function (r) { if (r.status === 'Approved') n.pay++; if (r.status === 'Paid' && !r.receipt) n.rec++; if (r.status === 'To revise' && (r.by === S.me.id || S.me.sections.indexOf(r.section) >= 0)) n.mine++; });
+  var iconOf = { over: 'over', soon: 'soon', 'new': 'new', mine: 'mine', decide: 'decide', dead: 'dead', month: 'month', pay: 'pay', rec: 'rec', more: 'more' };
   return '<nav><div>' + tabsFor().map(function (t) { return '<button type="button" class="' + (S.ui.tab === t[0] ? 'on' : '') + '" data-a="tab" data-id="' + t[0] + '">' + ic(iconOf[t[0]]) + '<span>' + t[1] + (n[t[0]] ? ' (' + n[t[0]] + ')' : '') + '</span></button>'; }).join('') + '</div></nav>';
 }
 function field(label, id, inner, hint) { return '<div class="field"><label for="' + id + '">' + label + '</label>' + (hint ? '<div class="s m">' + hint + '</div>' : '') + inner + '</div>'; }
@@ -478,6 +486,9 @@ function reqCard(r, opt) {
   } else h += '<div class="s">' + esc(r.lineName || (r.line === 'none' ? 'Not in the budget' : r.line)) + '</div>';
   if (!opt.nopill) h += '<div class="wrap">' + pill(r) + (r.emergency && !opt.band ? '<span class="pill em">Emergency</span>' : '') + (r.status === 'Paid' && !r.receipt ? '<span class="pill warn">Receipt missing</span>' : '') + (r.pending ? '<span class="pill warn">Not sent yet</span>' : '') + '</div>';
   if (r.note && (r.status === 'Not approved' || r.status === 'Next week')) h += '<div class="s">Director: ' + esc(r.note) + '</div>';
+  if (r.status === 'To revise') h += '<div class="ask">The Director asks to change: ' + esc(r.note) + '</div>';
+  if (r.status === 'Waiting' && r.revised) h += '<div class="s m">Sent again after revision' + (r.askedNote ? '. The Director had asked: ' + esc(r.askedNote) : '') + '</div>';
+  if (r.status === 'Approved' && r.payOn) h += '<div class="s b good">Will be paid on ' + day(r.payOn) + '</div>';
   return h + (opt.actions || '') + '</div>';
 }
 
@@ -498,7 +509,7 @@ function scrSoon() {
 function noticeBox() {
   var f = S.ui.form, v = V();
   if (!finIsDate(f.needed)) return '';
-  var n = finWorkDays(today(), f.needed), rule = v.settings.noticeDays;
+  var n = finWorkDays(askFrom(), f.needed), rule = v.settings.noticeDays;
   if (n >= rule) return '<div class="box info" role="status">' + plural(n, 'working day', 'working days') + ' notice. The Director decides on ' + day(nextApproval()) + '.</div>';
   var em = emCount(f.section);
   return '<div class="box em"><div class="b" role="status" id="shorttxt">' + plural(n, 'working day', 'working days') + ' notice. The rule is ' + rule + '.</div><div>Change the date, or send it as Emergency.</div>' +
@@ -506,13 +517,18 @@ function noticeBox() {
     field('Explain in a few words', 'rq-why', input('rq-why', 'why', f.why)) +
     '<div>' + esc(secName(f.section)) + ' has ' + plural(em, 'Emergency request', 'Emergency requests') + ' this month. This will be number ' + (em + 1) + '.</div></div>';
 }
-function isShort() { var f = S.ui.form; return finIsDate(f.needed) && finWorkDays(today(), f.needed) < V().settings.noticeDays; }
+/* a request sent again keeps the day it was first asked */
+function askFrom() { var f = S.ui.form, r = f.editId ? finFind(V().requests, f.editId) : null; return r ? r.created : today(); }
+function isShort() { var f = S.ui.form; return finIsDate(f.needed) && finWorkDays(askFrom(), f.needed) < V().settings.noticeDays; }
 function scrNew() {
-  var f = S.ui.form, secs = askSections();
-  if (!f.section || secs.indexOf(f.section) < 0) f.section = secs.length === 1 ? secs[0] : '';
+  var f = S.ui.form, secs = askSections(), ed = f.editId ? finFind(V().requests, f.editId) : null;
+  if (f.editId && (!ed || ed.status !== 'To revise')) { S.ui.form = f = {}; ed = null; }
+  if (ed) f.section = ed.section;
+  else if (!f.section || secs.indexOf(f.section) < 0) f.section = secs.length === 1 ? secs[0] : '';
   if (!f.pay) f.pay = 'bank';
-  var h = '<main><h1>New request</h1>';
-  if (secs.length > 1) h += field('Section', 'rq-sec', '<select class="in" id="rq-sec" data-f="section" data-r="1">' + options([['', 'Choose one']].concat(secs.map(function (c) { return [c, secName(c)]; })), f.section) + '</select>');
+  var h = '<main><h1>' + (ed ? 'Change the request ' + reqNo(ed) : 'New request') + '</h1>';
+  if (ed) h += '<div class="box em"><div class="b">The Director asks to change:</div><div>' + esc(ed.note) + '</div></div><div class="sec">' + esc(secName(ed.section)) + '</div>';
+  else if (secs.length > 1) h += field('Section', 'rq-sec', '<select class="in" id="rq-sec" data-f="section" data-r="1">' + options([['', 'Choose one']].concat(secs.map(function (c) { return [c, secName(c)]; })), f.section) + '</select>');
   h += field('What do you need?', 'rq-what', input('rq-what', 'what', f.what, 'text', 'placeholder="Example: footballs, 10"'));
   h += field('Amount in Kwacha', 'rq-amount', input('rq-amount', 'amount', f.amount, 'number', 'min="0" inputmode="decimal" data-b="1" placeholder="Example: 1800"'));
   h += field('Budget line', 'rq-line', '<select class="in" id="rq-line" data-f="line" data-b="1">' + lineOptions(f.section, f.line) + '</select>');
@@ -524,34 +540,55 @@ function scrNew() {
   h += field('Photo of the quotation', 'rq-photo', '<input class="in" id="rq-photo" type="file" accept="image/*" data-photo="form">') + (f.photo ? '<div class="good s" role="status">Photo added.</div>' : '');
   h += '<div id="noticebox">' + noticeBox() + '</div>';
   if (S.ui.err) h += '<div class="box err" role="alert">' + esc(S.ui.err) + '</div>';
-  h += '<button type="button" id="sendbtn" class="btn big ' + (isShort() ? 'em' : 'pri') + '" data-a="send">' + (isShort() ? 'Send as Emergency' : 'Send request') + '</button></main>';
+  h += '<button type="button" id="sendbtn" class="btn big ' + (isShort() ? 'em' : 'pri') + '" data-a="send">' + (ed ? (isShort() ? 'Send again as Emergency' : 'Send again') : (isShort() ? 'Send as Emergency' : 'Send request')) + '</button>' + (ed ? '<button type="button" class="btn" data-a="reviseCancel">Do not change now</button>' : '') + '</main>';
   return h;
 }
+function isOpenReq(r) { return r.status === 'Waiting' || r.status === 'To revise' || r.status === 'Next week' || r.status === 'Approved'; }
+function myOpen() {
+  return V().requests.filter(function (r) { return (r.by === S.me.id || S.me.sections.indexOf(r.section) >= 0) && isOpenReq(r); })
+    .sort(function (a, b) { var ra = a.status === 'To revise', rb = b.status === 'To revise'; if (ra !== rb) return ra ? -1 : 1; return (b.received || '') < (a.received || '') ? -1 : 1; });
+}
 function scrMine() {
-  var v = V(), list = v.requests.filter(function (r) { return r.by === S.me.id || S.me.sections.indexOf(r.section) >= 0; }).sort(function (a, b) { return (b.received || '') < (a.received || '') ? -1 : 1; });
-  var m = today().slice(0, 7), month = list.filter(function (r) { return r.created.slice(0, 7) === m && r.status !== 'Cancelled'; });
+  var list = myOpen(), rev = list.filter(function (r) { return r.status === 'To revise'; }).length;
   var h = '<main><h1>My requests</h1>';
   if (S.ui.msg) h += '<div class="box ok" role="status">' + esc(S.ui.msg) + '</div>';
-  h += '<div class="m">' + MOL[Number(m.slice(5)) - 1] + ': ' + plural(month.length, 'request', 'requests') + ', ' + month.filter(function (r) { return r.emergency; }).length + ' Emergency</div>';
-  if (!list.length) h += '<div class="s m">Nothing yet.</div>';
-  list.slice(0, 60).forEach(function (r) { h += reqCard(r, { sec: S.me.sections.length > 1 }); });
+  h += '<div class="m">' + plural(list.length, 'open request', 'open requests') + (rev ? ' · ' + rev + ' to revise' : '') + '</div>';
+  if (!list.length) h += '<div class="s m">Nothing open.</div>';
+  list.slice(0, 80).forEach(function (r) { h += reqCard(r, { sec: S.me.sections.length > 1, actions: r.status === 'To revise' ? '<button type="button" class="btn pri" data-a="reviseOpen" data-id="' + esc(r.id) + '">Change and send again</button>' : '' }); });
+  h += '<div class="s m">Paid, refused and cancelled requests are in the history.</div><button type="button" class="btn" data-a="allReqs">All my requests</button>';
   return h + '</main>';
 }
 
+function scrOver() {
+  var waiting = weekWaiting(), total = 0, em = 0, map = {}, tot = { P1: 0, P2: 0, P3: 0 };
+  waiting.forEach(function (r) { var p = tot[r.prio] != null ? r.prio : 'P3', x = map[r.section] || (map[r.section] = { P1: 0, P2: 0, P3: 0 }); total += r.amount; if (r.emergency) em++; x[p] += r.amount; tot[p] += r.amount; });
+  var h = '<main><h1>Overview</h1><div class="card"><div class="big num">' + waiting.length + ' waiting · ' + money(total) + '</div><div class="b" style="color:var(--em-ink)">' + em + ' sent as Emergency</div></div>' + weekPlan();
+  h += '<div class="card"><table class="plan" id="plan-secs"><caption>Waiting by section, in Kwacha</caption><thead><tr><th scope="col">Section</th><th scope="col">P1</th><th scope="col">P2</th><th scope="col">P3</th><th scope="col">Total</th></tr></thead><tbody>';
+  var codes = Object.keys(SEC).filter(function (c) { return map[c]; });
+  codes.forEach(function (c) { var x = map[c]; h += '<tr><th scope="row"><button type="button" class="lnk" data-a="overSec" data-id="' + esc(c) + '">' + esc(secName(c)) + '</button></th><td>' + kw(x.P1) + '</td><td>' + kw(x.P2) + '</td><td>' + kw(x.P3) + '</td><td class="b">' + kw(x.P1 + x.P2 + x.P3) + '</td></tr>'; });
+  if (!codes.length) h += '<tr><td colspan="5" style="text-align:left">Nothing waiting.</td></tr>';
+  h += '</tbody><tfoot><tr><th scope="row">Total</th><td>' + kw(tot.P1) + '</td><td>' + kw(tot.P2) + '</td><td>' + kw(tot.P3) + '</td><td>' + kw(total) + '</td></tr></tfoot></table>' + (codes.length ? '<div class="s m">Tap a section to see its requests.</div>' : '') + '</div>';
+  return h + '</main>';
+}
 function scrDecide() {
-  var v = V(), can = S.me.role === 'director', w = weekInfo(), waiting = weekWaiting().sort(byPrio);
+  var v = V(), can = S.me.role === 'director', w = weekInfo(), f = S.ui.form, all = weekWaiting().sort(byPrio), secs = [];
+  all.forEach(function (r) { if (secs.indexOf(r.section) < 0) secs.push(r.section); });
+  if (f.dSec && secs.indexOf(f.dSec) < 0) f.dSec = '';
+  var waiting = f.dSec ? all.filter(function (r) { return r.section === f.dSec; }) : all;
   var total = 0, em = 0, byP = { P1: [0, 0], P2: [0, 0], P3: [0, 0] };
   waiting.forEach(function (r) { total += r.amount; if (r.emergency) em++; var g = byP[r.prio] || byP.P3; g[0]++; g[1] += r.amount; });
   var h = '<main><h1>To decide</h1><div class="card"><div class="big num">' + waiting.length + ' waiting · ' + money(total) + '</div><div class="b" style="color:var(--em-ink)">' + em + ' sent as Emergency</div>' +
-    '<div class="s m" style="margin-top:6px">Rule: ' + v.settings.noticeDays + ' working days notice. Decision day: ' + WDL[v.settings.approvalDay] + '.</div></div>' + weekPlan();
+    (w.set ? '<div class="num b ' + (w.left >= 0 ? 'good' : 'bad') + '">' + (w.left >= 0 ? 'Left this week: ' + money(w.left) : 'Short this week by ' + money(-w.left)) + '</div><div class="s m">Counted on the money ' + (w.onRec ? 'received' : 'expected') + '.</div>' : '<div class="s m">The money of this week is not written yet.</div>') +
+    '<div class="s m" style="margin-top:6px">Rule: ' + v.settings.noticeDays + ' working days notice. Decision day: ' + WDL[v.settings.approvalDay] + '.</div></div>';
+  if (secs.length > 1) h += field('Section', 'dc-sec', '<select class="in" id="dc-sec" data-f="dSec" data-r="1">' + options([['', 'All sections']].concat(Object.keys(SEC).filter(function (c) { return secs.indexOf(c) >= 0; }).map(function (c) { return [c, secName(c)]; })), f.dSec || '') + '</select>');
   if (!waiting.length) h += '<div class="s m">Nothing waiting.</div>';
   var lastP = '';
   waiting.forEach(function (r) {
     var pk = byP[r.prio] ? r.prio : 'P3';
     if (pk !== lastP) { h += '<h2>' + pk + ' · ' + plural(byP[pk][0], 'request', 'requests') + ' · ' + money(byP[pk][1]) + '</h2>'; lastP = pk; }
-    h += reqCard(r, { sec: true, band: true, budget: true, nopill: r.status === 'Waiting', actions: can ? '<div class="btns"><button type="button" class="btn pri" style="flex:2 1 0" data-a="approve" data-id="' + esc(r.id) + '">Approve</button><button type="button" class="btn" style="flex:2 1 0" data-a="later" data-id="' + esc(r.id) + '">Next week</button><button type="button" class="btn" data-a="refuse" data-id="' + esc(r.id) + '">No</button></div>' : '' });
+    h += reqCard(r, { sec: true, band: true, budget: true, nopill: r.status === 'Waiting', actions: can ? '<div class="btns"><button type="button" class="btn pri" data-a="approve" data-id="' + esc(r.id) + '">Approve</button><button type="button" class="btn" data-a="later" data-id="' + esc(r.id) + '">Next week</button></div><div class="btns"><button type="button" class="btn" data-a="revise" data-id="' + esc(r.id) + '">Ask to revise</button><button type="button" class="btn" data-a="refuse" data-id="' + esc(r.id) + '">No</button></div>' : '' });
   });
-  var wk = w.key, decided = v.requests.filter(function (r) { return (r.status === 'Approved' || r.status === 'Next week' || r.status === 'Not approved') && r.decidedAt && finWeekKey(finToday(r.decidedAt)) === wk; });
+  var wk = w.key, decided = v.requests.filter(function (r) { return (r.status === 'Approved' || r.status === 'Next week' || r.status === 'Not approved' || r.status === 'To revise') && r.decidedAt && finWeekKey(finToday(r.decidedAt)) === wk; });
   if (decided.length) {
     h += '<h2>Decided this week</h2>';
     decided.forEach(function (r) { h += '<div class="card"><div class="row"><div class="b">' + esc(r.what) + '</div><div class="b num">' + money(r.amount) + '</div></div><div class="s m">' + esc(secName(r.section)) + '</div><div class="row" style="align-items:center"><div>' + pill(r) + '</div>' + (can ? '<button type="button" class="btn" data-a="undo" data-id="' + esc(r.id) + '">Undo</button>' : '') + '</div></div>'; });
@@ -598,7 +635,7 @@ function scrPay() {
   var paid = v.requests.filter(function (r) { return r.status === 'Paid' && r.paidAt && finWeekKey(finToday(r.paidAt)) === w.key; });
   var h = '<main><h1>To pay</h1>' + weekPlan();
   if (!list.length) h += '<div class="s m">Nothing to pay.</div>';
-  list.forEach(function (r) { h += reqCard(r, { sec: true, nopill: true, actions: '<div class="s b ' + (r.quoteFile ? 'm' : 'bad') + '">' + (r.quoteFile ? 'Quotation attached' : 'No quotation') + '</div>' + (can ? '<button type="button" class="btn pri" data-a="paid" data-id="' + esc(r.id) + '">Paid</button>' : '') }); });
+  list.forEach(function (r) { h += reqCard(r, { sec: true, nopill: true, actions: '<div class="s b ' + (r.quoteFile ? 'm' : 'bad') + '">' + (r.quoteFile ? 'Quotation attached' : 'No quotation') + '</div>' + (can ? '<div class="btns"><button type="button" class="btn pri" data-a="paid" data-id="' + esc(r.id) + '">Paid</button><button type="button" class="btn" data-a="payOn" data-id="' + esc(r.id) + '">' + (r.payOn ? 'Change the pay date' : 'Set the pay date') + '</button></div>' : '') }); });
   if (paid.length) { h += '<h2>Paid this week</h2>'; paid.forEach(function (r) { h += '<div class="card"><div class="row"><div class="b">' + esc(r.what) + '</div><div class="b num">' + money(r.amount) + '</div></div><div class="row" style="align-items:center"><div class="s m">' + esc(secName(r.section)) + ' · ' + payText(r) + '</div>' + (can ? '<button type="button" class="btn" data-a="unpay" data-id="' + esc(r.id) + '">Undo</button>' : '') + '</div></div>'; }); }
   return h + '</main>';
 }
@@ -668,7 +705,9 @@ function modal() {
       '<div class="s">Needed ' + day(r.needed) + ' · asked ' + day(r.created) + ' by ' + esc(r.byName) + ' · ' + plural(r.notice, 'working day', 'working days') + ' notice · ' + payText(r) + '</div>' +
       (r.emergency ? '<div class="s" style="color:var(--em-ink)">' + esc(r.reason) + ': ' + esc(r.why) + '</div>' : '') + '</div>' + lineBox(r.line, r.amount, r.status === 'Waiting' || r.status === 'Next week');
     var hist = '';
-    if (r.decidedAt) hist += '<div class="s">' + (r.status === 'Paid' || r.status === 'Approved' ? 'Approved' : r.status === 'Not approved' ? 'Not approved' : 'Moved to next week') + ' by ' + esc(r.decidedBy) + ', ' + when(r.decidedAt) + (r.note ? ': ' + esc(r.note) : '') + '</div>';
+    if (r.revised) hist += '<div class="s">Sent again after revision, ' + when(r.revisedAt) + (r.askedNote ? '. The Director had asked: ' + esc(r.askedNote) : '') + '</div>';
+    if (r.decidedAt) hist += '<div class="s">' + (r.status === 'Paid' || r.status === 'Approved' ? 'Approved' : r.status === 'Not approved' ? 'Not approved' : r.status === 'To revise' ? 'Sent back to revise' : 'Moved to next week') + ' by ' + esc(r.decidedBy) + ', ' + when(r.decidedAt) + (r.note ? ': ' + esc(r.note) : '') + '</div>';
+    if (r.status === 'Approved' && r.payOn) hist += '<div class="s b good">Will be paid on ' + day(r.payOn) + '</div>';
     if (r.paidAt) hist += '<div class="s">Paid by ' + esc(r.paidBy) + ', ' + when(r.paidAt) + '</div>';
     if (r.receipt) hist += '<div class="s">Receipt added by ' + esc(r.receiptBy) + ', ' + when(r.receiptAt) + '</div>';
     if (hist) h += '<div class="card">' + hist + '</div>';
@@ -680,11 +719,17 @@ function modal() {
     if (b) h += '<div class="btns">' + b + '</div>';
     if (!r.quoteFile && (own || acc) && r.status !== 'Cancelled') h += '<div class="field"><label for="md-quote">Add the photo of the quotation</label><input class="in" id="md-quote" type="file" accept="image/*" data-photo="quote"></div>';
     if (r.status === 'Paid' && !r.receipt && (own || acc)) h += '<div class="card"><div class="field"><label for="md-rec">Photo of the receipt</label><input class="in" id="md-rec" type="file" accept="image/*" data-photo="receipt"></div>' + (m.photo ? '<div class="good s">Photo added.</div>' : '') + '<button type="button" class="btn pri" data-a="receipt" data-id="' + esc(r.id) + '">' + (m.photo ? 'Save the receipt' : 'Receipt added, no photo') + '</button></div>';
-    if ((r.status === 'Waiting' || r.status === 'Next week') && own) h += '<button type="button" class="btn" data-a="cancelReq" data-id="' + esc(r.id) + '">Cancel this request</button>';
+    if (r.status === 'To revise' && (own || acc)) h += '<button type="button" class="btn pri" data-a="reviseOpen" data-id="' + esc(r.id) + '">Change and send again</button>';
+    if ((r.status === 'Waiting' || r.status === 'Next week' || r.status === 'To revise') && own) h += '<button type="button" class="btn" data-a="cancelReq" data-id="' + esc(r.id) + '">Cancel this request</button>';
     h += err + close;
   }
   if (x.type === 'note') {
-    h += '<h1>' + (x.status === 'Next week' ? 'Move to next week' : 'Not approved') + '</h1>' + mField('Reason for the section', 'md-note', 'note', 'text', '', 'They will see it.') + err + '<div class="btns"><button type="button" class="btn pri" data-a="decideSave">Confirm</button>' + close + '</div>';
+    h += '<h1>' + (x.status === 'Next week' ? 'Move to next week' : x.status === 'To revise' ? 'Ask to revise' : 'Not approved') + '</h1>' + mField(x.status === 'To revise' ? 'What should change?' : 'Reason for the section', 'md-note', 'note', 'text', '', 'They will see it.') + err + '<div class="btns"><button type="button" class="btn pri" data-a="decideSave">Confirm</button>' + close + '</div>';
+  }
+  if (x.type === 'payon') {
+    var pr = finFind(V().requests, x.id);
+    h += '<h1>Pay date</h1>' + (pr ? '<div class="s m">' + reqNo(pr) + ' · ' + esc(pr.what) + ' · ' + money(pr.amount) + '</div>' : '') + mField('Will be paid on', 'md-payon', 'date', 'date', '', 'The section will see it.') + err +
+      '<div class="btns"><button type="button" class="btn pri" data-a="payOnSave">Save</button>' + (pr && pr.payOn ? '<button type="button" class="btn" data-a="payOnClear">Remove the date</button>' : '') + close + '</div>';
   }
   if (x.type === 'dl') {
     var secs = finSeesAll(S.me) && S.me.role !== 'viewer' || S.me.admin ? FIN_BUDGET.sections.map(function (s) { return s.code; }) : S.me.sections;
@@ -724,7 +769,7 @@ function modal() {
   return '<div class="modal" data-a="modalBg"><div class="sheet" role="dialog" aria-modal="true">' + h + '</div></div>';
 }
 
-var SCREENS = { soon: scrSoon, 'new': scrNew, mine: scrMine, decide: scrDecide, dead: scrDead, month: scrMonth, pay: scrPay, rec: scrRec, more: scrMore, all: scrAll, people: scrPeople, budget: scrBudget, comments: scrComments };
+var SCREENS = { soon: scrSoon, 'new': scrNew, mine: scrMine, decide: scrDecide, dead: scrDead, month: scrMonth, pay: scrPay, rec: scrRec, over: scrOver, more: scrMore, all: scrAll, people: scrPeople, budget: scrBudget, comments: scrComments };
 function render() {
   var app = document.getElementById('app'), ae = document.activeElement, keep = ae && ae.id && app.contains(ae) ? { id: ae.id, s: ae.selectionStart, e: ae.selectionEnd } : null, y = window.scrollY, sheet = app.querySelector('.sheet'), sy = sheet ? sheet.scrollTop : 0;
   var h;
@@ -783,9 +828,9 @@ function refreshBoxes() {
   if (b) {
     var had = !!b.querySelector('#rq-reason'), will = isShort();
     if (had !== will || !will) b.innerHTML = noticeBox();
-    else { var st = document.getElementById('shorttxt'); if (st) st.textContent = plural(finWorkDays(today(), f.needed), 'working day', 'working days') + ' notice. The rule is ' + V().settings.noticeDays + '.'; }
+    else { var st = document.getElementById('shorttxt'); if (st) st.textContent = plural(finWorkDays(askFrom(), f.needed), 'working day', 'working days') + ' notice. The rule is ' + V().settings.noticeDays + '.'; }
   }
-  if (s) { s.textContent = isShort() ? 'Send as Emergency' : 'Send request'; s.className = 'btn big ' + (isShort() ? 'em' : 'pri'); }
+  if (s) { s.textContent = f.editId ? (isShort() ? 'Send again as Emergency' : 'Send again') : (isShort() ? 'Send as Emergency' : 'Send request'); s.className = 'btn big ' + (isShort() ? 'em' : 'pri'); }
 }
 
 /* ================= photos: made small before they are kept ================= */
@@ -856,13 +901,14 @@ function demoDb() {
   rq('ADM', 'd-acc', 'Road tax, bus 1', 1300, 'ADM-07', 'P1', -1, 3, 'bank', 'Waiting', { reason: 'Other reason', why: 'Deadline found late' });
   rq('CAR', 'd-car', 'Pine timber for the desks order', 6500, 'CAR-16', 'P2', -3, 12, 'bank', 'Waiting');
   rq('CAR', 'd-car', 'Dust masks, 10', 950, 'none', 'P3', -2, 10, 'bank', 'Waiting');
-  rq('FOO', 'd-head', 'Footballs, 10', 1800, 'FOO-23', 'P2', -4, 10, 'bank', 'Approved');
+  rq('FOO', 'd-head', 'Footballs, 10', 1800, 'FOO-23', 'P2', -4, 10, 'bank', 'Approved'); db.requests[db.requests.length - 1].payOn = finAddDays(t, 2);
+  rq('FOO', 'd-head', 'Training bibs, 40', 3200, 'FOO-23', 'P3', -1, 14, 'bank', 'To revise'); db.requests[db.requests.length - 1].note = 'Too many. Ask for 20 and add the quotation.';
   rq('FOO', 'd-head', 'Cash allowance, referees', 900, 'FOO-07', 'P1', -9, -8, 'cash', 'Paid', { reason: 'Other reason', why: 'Tournament confirmed late' });
   rq('CAR', 'd-car', 'Varnish, 1 litre', 550, 'CAR-02', 'P2', -6, -5, 'cash', 'Paid', { receipt: true });
   var dl = function (id, sec, what, amount, line, off, rep) { db.rev++; db.deadlines.push({ id: id, section: sec, what: what, amount: amount, line: line, lineName: LINE[line] ? LINE[line].name : '', date: finAddDays(t, off), repeat: rep ? 'monthly' : '', pay: 'bank', asked: '', deleted: false, rev: db.rev }); };
   dl('dd1', 'FOO', 'Tournament', 1000, 'FOO-12', 6); dl('dd2', 'FOO', 'Away match', 2000, 'FOO-11', 13); dl('dd3', 'FOO', 'Communication allowance coaches', 320, 'FOO-20', 17, true);
   dl('dd4', 'CAR', 'Examination fees, 15 students', 5250, 'CAR-21', 4); dl('dd5', 'ADM', 'Motor vehicle insurance, 1 vehicle', 5000, 'ADM-06', 9);
-  db.rev++; db.settings.weeks[finWeekKey(t)] = 22000; db.settings.countFrom = finAddDays(t, -60); db.settings.rev = db.rev;
+  db.rev++; db.settings.weeks[finWeekKey(t)] = 22000; db.settings.weeksExp[finWeekKey(t)] = 25000; db.settings.weeksDate[finWeekKey(t)] = t; db.settings.countFrom = finAddDays(t, -60); db.settings.rev = db.rev;
   return db;
 }
 
@@ -920,10 +966,10 @@ function saveFile(name, blob) {
     window.claude.use('downloads').then(function (d) { if (!d) return plain(); return d.save({ filename: name, data: blob }); }).catch(function (e) { if (!e || e.code !== 'declined') { S.notices.push('The file could not be saved here.'); render(); } });
   } else plain();
 }
-function reqHead() { return ['No', 'Asked on', 'Section', 'What', 'Amount (K)', 'Priority', 'Needed on', 'Notice (working days)', 'Emergency', 'Reason', 'Pay by', 'Status', 'Asked by', 'Budget line code', 'Budget line', 'Activity', 'Budget of the line (K)', 'Approved on the line (K)', 'Decided by', 'Decided on', 'Note of the Director', 'Paid by', 'Paid on', 'Receipt', 'Quotation']; }
+function reqHead() { return ['No', 'Asked on', 'Section', 'What', 'Amount (K)', 'Priority', 'Needed on', 'Notice (working days)', 'Emergency', 'Reason', 'Pay by', 'Status', 'Asked by', 'Budget line code', 'Budget line', 'Activity', 'Budget of the line (K)', 'Approved on the line (K)', 'Decided by', 'Decided on', 'Note of the Director', 'Paid by', 'Paid on', 'Receipt', 'Quotation', 'Will be paid on', 'Sent again (times)']; }
 function reqRow(r) {
   var L = LINE[r.line], u = L ? lineUse(r.line) : null;
-  return [r.no || 'Not sent yet', r.created, secName(r.section), r.what, r.amount, r.prio, r.needed, r.notice, r.emergency ? 'Emergency' : '', r.emergency ? r.reason + ': ' + r.why : '', payText(r), (PILL[r.status] || PILL.Waiting)[0], r.byName, r.line === 'none' ? '' : r.line, r.lineName || (r.line === 'none' ? 'Not in the budget' : ''), L ? L.act : '', L ? L.total : '', u ? u.used : '', r.decidedBy, r.decidedAt ? finToday(r.decidedAt) : '', r.note, r.paidBy, r.paidAt ? finToday(r.paidAt) : '', r.receipt ? 'Yes' : (r.status === 'Paid' ? 'Missing' : ''), r.quoteFile ? 'Yes' : 'No'];
+  return [r.no || 'Not sent yet', r.created, secName(r.section), r.what, r.amount, r.prio, r.needed, r.notice, r.emergency ? 'Emergency' : '', r.emergency ? r.reason + ': ' + r.why : '', payText(r), (PILL[r.status] || PILL.Waiting)[0], r.byName, r.line === 'none' ? '' : r.line, r.lineName || (r.line === 'none' ? 'Not in the budget' : ''), L ? L.act : '', L ? L.total : '', u ? u.used : '', r.decidedBy, r.decidedAt ? finToday(r.decidedAt) : '', r.note, r.paidBy, r.paidAt ? finToday(r.paidAt) : '', r.receipt ? 'Yes' : (r.status === 'Paid' ? 'Missing' : ''), r.quoteFile ? 'Yes' : 'No', r.payOn || '', r.revised || ''];
 }
 function dlHead() { return ['Section', 'What', 'Amount (K)', 'Needed on', 'Last day to ask', 'Late', 'Every month', 'Pay by', 'Budget line code', 'Budget line']; }
 function dlRow(x) { var d = deadlineView(x); return [secName(x.section), x.what, x.amount, x.date, d.askBy, d.late ? 'Late' : '', x.repeat ? 'Yes' : '', x.pay === 'cash' ? 'Cash' : 'Bank or mobile money', x.line === 'none' ? '' : (x.line || ''), x.lineName || '']; }
@@ -936,16 +982,22 @@ function exportSheets() {
   function dl(name, list) { out.push({ name: name, head: dlHead(), rows: list.sort(function (a, b) { return a.date < b.date ? -1 : 1; }).map(dlRow) }); }
   function weekSheet() {
     var d = weekPlanData(), lf = function (c) { return w.set ? w.left - c : ''; };
-    out.push({ name: 'Money this week', head: ['Item', 'Value'], rows: [['Week of', w.key], ['Money received this week (K)', w.set ? w.money : 'Not written yet'], ['Approved this week (K)', w.used], ['Left (K)', w.set ? w.left : ''],
+    out.push({ name: 'Money this week', head: ['Item', 'Value'], rows: [['Week of', w.key], ['Money expected (K)', w.exp != null ? w.exp : 'Not written'], ['Money received (K)', w.onRec ? w.rec : 'Nothing yet'], ['Date received', w.recDate || ''], ['Approved this week (K)', w.used], ['Left (K), counted on the money ' + (w.onRec ? 'received' : 'expected'), w.set ? w.left : ''],
       ['Waiting, P1 (K)', d.c1], ['Waiting, P1 + P2 (K)', d.c2], ['Waiting, P1 + P2 + P3 (K)', d.c3], ['Left if P1 is approved (K)', lf(d.c1)], ['Left if P1 + P2 are approved (K)', lf(d.c2)], ['Left if all is approved (K)', lf(d.c3)]] });
     out.push({ name: 'By budget line', head: ['Section', 'Budget line', 'Line name', 'P1 (K)', 'P2 (K)', 'P3 (K)', 'P1 + P2 (K)', 'P1 + P2 + P3 (K)'], rows: d.rows.map(function (x) { return [secName(x.sec), x.line, x.name, x.P1, x.P2, x.P3, x.P1 + x.P2, x.P1 + x.P2 + x.P3]; }) });
   }
-  if (t === 'mine') rq('My requests', v.requests.filter(function (r) { return r.by === S.me.id || S.me.sections.indexOf(r.section) >= 0; }).sort(byNew));
+  if (t === 'mine') rq('My open requests', myOpen());
+  else if (t === 'over') {
+    var wl = weekWaiting(), bs = {}, hs = Object.keys(SEC);
+    wl.forEach(function (r) { var x = bs[r.section] || (bs[r.section] = { P1: 0, P2: 0, P3: 0, n: 0 }); x[x[r.prio] != null ? r.prio : 'P3'] += r.amount; x.n++; });
+    out.push({ name: 'Waiting by section', head: ['Section', 'Requests', 'P1 (K)', 'P2 (K)', 'P3 (K)', 'Total (K)'], rows: hs.filter(function (c) { return bs[c]; }).map(function (c) { var x = bs[c]; return [secName(c), x.n, x.P1, x.P2, x.P3, x.P1 + x.P2 + x.P3]; }) });
+    weekSheet();
+  }
   else if (t === 'soon') dl('Coming up', v.deadlines.filter(function (x) { return !x.deleted && !x.asked && S.me.sections.indexOf(x.section) >= 0; }));
   else if (t === 'dead') dl('Deadlines', v.deadlines.filter(function (x) { return !x.deleted && !x.asked; }));
   else if (t === 'decide') {
     rq('To decide', weekWaiting().sort(byPrio));
-    rq('Decided this week', v.requests.filter(function (r) { return (r.status === 'Approved' || r.status === 'Next week' || r.status === 'Not approved') && r.decidedAt && finWeekKey(finToday(r.decidedAt)) === w.key; }));
+    rq('Decided this week', v.requests.filter(function (r) { return (r.status === 'Approved' || r.status === 'Next week' || r.status === 'Not approved' || r.status === 'To revise') && r.decidedAt && finWeekKey(finToday(r.decidedAt)) === w.key; }));
     weekSheet();
   } else if (t === 'pay') {
     rq('To pay', v.requests.filter(function (r) { return r.status === 'Approved'; }).sort(function (a, b) { return a.needed < b.needed ? -1 : 1; }));
@@ -968,7 +1020,7 @@ function exportSheets() {
   }
   return out;
 }
-var EXPORTS = { soon: 'coming-up', mine: 'my-requests', decide: 'to-decide', dead: 'deadlines', month: 'by-section', pay: 'to-pay', rec: 'receipts', all: 'requests', people: 'people', budget: 'budget', comments: 'comments' };
+var EXPORTS = { soon: 'coming-up', mine: 'my-requests', decide: 'to-decide', dead: 'deadlines', month: 'by-section', pay: 'to-pay', rec: 'receipts', over: 'overview', all: 'requests', people: 'people', budget: 'budget', comments: 'comments' };
 function scrBudget() {
   var open = S.ui.form.bsec, h = '<main><div class="row" style="align-items:center"><h1>Budget ' + FIN_BUDGET.year + '</h1><button type="button" class="btn" data-a="tab" data-id="more">Back</button></div>';
   budgetSections().forEach(function (s) {
@@ -1034,10 +1086,12 @@ var H = {
     if (!f.line) miss.push('the budget line'); if (!f.prio) miss.push('the priority'); if (!finIsDate(f.needed)) miss.push('the date');
     if (short && !f.reason) miss.push('why it is an Emergency'); if (short && !String(f.why || '').trim()) miss.push('a few words to explain');
     if (miss.length) { S.ui.err = 'Still missing: ' + miss.join(', ') + '.'; return render(); }
-    var res = act('req_new', { id: uid(), section: f.section, what: f.what, amount: amount, line: f.line, lineName: f.line === 'none' ? 'Not in the budget' : (LINE[f.line] ? LINE[f.line].name : ''), prio: f.prio, needed: f.needed, pay: f.pay, reason: f.reason || '', why: f.why || '', deadline: f.deadline || '', photo: f.photo || null, created: today() });
+    var lname = f.line === 'none' ? 'Not in the budget' : (LINE[f.line] ? LINE[f.line].name : ''), again = !!f.editId;
+    var res = again ? act('req_edit', { id: f.editId, what: f.what, amount: amount, line: f.line, lineName: lname, prio: f.prio, needed: f.needed, pay: f.pay, reason: f.reason || '', why: f.why || '', photo: f.photo || null })
+      : act('req_new', { id: uid(), section: f.section, what: f.what, amount: amount, line: f.line, lineName: lname, prio: f.prio, needed: f.needed, pay: f.pay, reason: f.reason || '', why: f.why || '', deadline: f.deadline || '', photo: f.photo || null, created: today() });
     if (!res.ok) { S.ui.err = errText(res.error); return render(); }
     S.ui.form = {};
-    go('mine'); S.ui.msg = 'Sent to the Director.'; render();
+    go('mine'); S.ui.msg = again ? 'Sent again to the Director.' : 'Sent to the Director.'; render();
   },
   openReq: function (el) { openModal({ type: 'req', id: el.dataset.id }); },
   closeModal: function () { var back = S.ui.modal && S.ui.modal.back; S.ui.modal = back ? back.modal : null; S.ui.m = back ? back.m : {}; S.ui.merr = ''; render(); },
@@ -1052,15 +1106,33 @@ var H = {
   approve: function (el) { var r = act('decide', { id: el.dataset.id, status: 'Approved', note: '' }); if (!r.ok) S.notices.push(errText(r.error)); render(); },
   later: function (el) { openModal({ type: 'note', id: el.dataset.id, status: 'Next week' }); },
   refuse: function (el) { openModal({ type: 'note', id: el.dataset.id, status: 'Not approved' }); },
-  decideSave: function () { var x = S.ui.modal, r = act('decide', { id: x.id, status: x.status, note: S.ui.m.note || '' }); if (!r.ok) { S.ui.merr = errText(r.error); } else S.ui.modal = null; render(); },
+  revise: function (el) { openModal({ type: 'note', id: el.dataset.id, status: 'To revise' }); },
+  overSec: function (el) { S.ui.form.dSec = el.dataset.id; go('decide'); },
+  payOn: function (el) { var r = finFind(V().requests, el.dataset.id); if (!r) return; openModal({ type: 'payon', id: r.id }, { date: r.payOn || '' }); },
+  payOnSave: function () { var x = S.ui.modal; if (!finIsDate(S.ui.m.date)) { S.ui.merr = 'Choose the date.'; return render(); } var r = act('pay_date', { id: x.id, date: S.ui.m.date }); if (!r.ok) S.ui.merr = errText(r.error); else S.ui.modal = null; render(); },
+  payOnClear: function () { var x = S.ui.modal, r = act('pay_date', { id: x.id, date: '' }); if (!r.ok) S.ui.merr = errText(r.error); else S.ui.modal = null; render(); },
+  reviseOpen: function (el) {
+    var r = finFind(V().requests, el.dataset.id); if (!r || r.status !== 'To revise') return;
+    S.ui.form = { editId: r.id, section: r.section, what: r.what, amount: String(r.amount), line: r.line, prio: r.prio, needed: r.needed, pay: r.pay, reason: r.reason || '', why: r.why || '' };
+    go('new');
+  },
+  reviseCancel: function () { S.ui.form = {}; go('mine'); },
+  decideSave: function () { var x = S.ui.modal; if (x.status === 'To revise' && !String(S.ui.m.note || '').trim()) { S.ui.merr = ERR.note; return render(); } var r = act('decide', { id: x.id, status: x.status, note: S.ui.m.note || '' }); if (!r.ok) { S.ui.merr = errText(r.error); } else S.ui.modal = null; render(); },
   undo: function (el) { var r = act('decide', { id: el.dataset.id, status: 'Waiting', note: '' }); if (!r.ok) S.notices.push(errText(r.error)); render(); },
   paid: function (el) { var r = act('pay', { id: el.dataset.id }); if (!r.ok) S.notices.push(errText(r.error)); render(); },
   unpay: function (el) { var r = act('unpay', { id: el.dataset.id }); if (!r.ok) S.notices.push(errText(r.error)); render(); },
   wkLines: function () { S.ui.form.wkLines = !S.ui.form.wkLines; render(); },
   weekSave: function () {
-    var a = Number(S.ui.form.week);
-    if (S.ui.form.week == null || S.ui.form.week === '' || !(a >= 0)) { S.notices.push('Write the money for this week.'); return render(); }
-    var r = act('week_money', { week: today(), amount: a }); if (!r.ok) S.notices.push(errText(r.error)); else S.thanks = 'Saved: ' + money(a) + ' received this week.'; delete S.ui.form.week; render();
+    var f = S.ui.form, w = weekInfo(), did = 0, bad = '';
+    function val(x) { return x === '' || x == null ? null : Number(x); }
+    function send(d) { var r = act('week_money', d); if (r.ok) did++; else bad = errText(r.error); }
+    var e = val(f.wexp), g = val(f.week);
+    if ((e !== null && !(e >= 0)) || (g !== null && !(g >= 0))) { S.notices.push('Write the amounts as numbers.'); return render(); }
+    if (f.wexp != null && e !== (w.exp != null ? w.exp : null)) send({ week: today(), kind: 'expected', amount: e });
+    var recNow = f.week != null ? g : (w.rec != null ? w.rec : null), dateNow = f.wdate || w.recDate || today();
+    if (recNow !== (w.rec != null ? w.rec : null) || (recNow !== null && dateNow !== w.recDate)) send({ week: today(), kind: 'received', amount: recNow, date: dateNow });
+    if (bad) S.notices.push(bad); else if (did) S.thanks = 'Saved.'; else S.notices.push('Write the money expected or the money received.');
+    delete f.wexp; delete f.week; delete f.wdate; render();
   },
   dlNew: function () { openModal({ type: 'dl', id: '' }, { section: S.me.sections.length === 1 ? S.me.sections[0] : '' }); },
   dlEdit: function (el) { var x = finFind(V().deadlines, el.dataset.id); if (!x) return; openModal({ type: 'dl', id: x.id }, { section: x.section, what: x.what, amount: x.amount, line: x.line, date: x.date, monthly: x.repeat === 'monthly', cash: x.pay === 'cash' }); },
