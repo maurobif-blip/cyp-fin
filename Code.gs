@@ -49,7 +49,8 @@ function finHasSection(u, code) { return (u.sections || []).indexOf(code) >= 0; 
 function finSeesAll(u) { return u.role === 'director' || u.role === 'accountant' || u.role === 'viewer' || !!u.admin; }
 function finSeesRequest(u, r) { return finSeesAll(u) || finHasSection(u, r.section) || r.by === u.id; }
 function finCanAskFor(u, code) { return finHasSection(u, code) || u.role === 'accountant'; }
-function finCanDeadline(u, code) { return u.role === 'director' || u.role === 'accountant' || !!u.admin || finHasSection(u, code); }
+/* the dates of the agenda are kept by the Accountant, the Director and the administrator; a section head sees them and asks */
+function finCanDeadline(u, code) { return u.role === 'director' || u.role === 'accountant' || !!u.admin; }
 /* a comment on the app itself: which screen, which word, what the person says */
 function finCommentRec(d, nowIso, by, byName, demo) {
   return { id: String(d.id), time: nowIso, by: by, byName: byName, demo: !!demo, page: finText(d.page, 40), target: finText(d.target, 160), text: finText(d.text, 600),
