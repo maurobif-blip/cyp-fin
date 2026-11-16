@@ -29,7 +29,8 @@ h1{margin:0;font-size:22px} h2{margin:8px 0 0;font-size:18px}
 .top .who{font-size:14px;font-weight:700;color:var(--muted);text-align:right}
 .net{font-size:13px;font-weight:700;padding:6px 16px;background:var(--warn-bg);color:var(--warn-ink)}
 .net.bad{background:#FBE3E0;color:var(--bad)}
-main{flex:1 1 auto;padding:16px 16px 96px;display:flex;flex-direction:column;gap:16px}
+.net.ok{background:var(--ok-bg);color:var(--ok-ink)}
+main{flex:1 1 auto;padding:16px 16px 136px;display:flex;flex-direction:column;gap:16px}
 .card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:14px;display:flex;flex-direction:column;gap:8px}
 .card.tap{cursor:pointer}
 .band{background:var(--em-bg);color:var(--em-ink);margin:-14px -14px 0;padding:10px 14px;border-radius:12px 12px 0 0;display:flex;flex-direction:column;gap:2px}
@@ -77,6 +78,17 @@ svg.ic{width:22px;height:22px;fill:none;stroke:currentColor;stroke-width:2;strok
 .checks input{width:22px;height:22px}
 img.photo{max-width:100%;border-radius:8px;border:1px solid var(--line)}
 .center{align-items:center;text-align:center}
+.fabwrap{position:fixed;left:0;right:0;bottom:calc(74px + env(safe-area-inset-bottom));z-index:12;display:flex;justify-content:center;pointer-events:none}
+.fabwrap.low{bottom:calc(14px + env(safe-area-inset-bottom))}
+.fabwrap.top{bottom:auto;top:8px}
+.fabwrap>div{width:100%;max-width:560px;display:flex;justify-content:flex-end;padding:0 12px}
+.fab{pointer-events:auto;min-height:44px;padding:0 14px;border-radius:999px;border:2px solid var(--ink);background:var(--ink);color:#fff;font-weight:700;font-size:14px;display:inline-flex;align-items:center;gap:6px;box-shadow:0 2px 8px rgba(20,33,61,.35)}
+.pickbar{position:fixed;left:0;right:0;top:0;z-index:13;display:flex;justify-content:center;pointer-events:none}
+.pickbar>div{pointer-events:auto;width:100%;max-width:560px;background:var(--ink);color:#fff;font-weight:700;padding:10px 16px;display:flex;align-items:center;justify-content:space-between;gap:12px}
+.pickbar .btn{min-height:40px;color:var(--ink)}
+.picking main,.picking nav,.picking .sheet,.picking .top{cursor:crosshair}
+.quote{border-left:4px solid var(--edge);padding:2px 0 2px 10px;color:var(--muted);font-size:14px;overflow-wrap:anywhere}
+.cmt{overflow-wrap:anywhere;white-space:pre-wrap}
 @media (min-width:700px){body{background:#E7EBF3}#app{box-shadow:0 0 0 1px var(--line)}.modal{align-items:center}.sheet{border-radius:16px}}
 @media (prefers-reduced-motion:no-preference){.btn,nav button{transition:background .12s,color .12s}}
 </style>
@@ -87,7 +99,7 @@ img.photo{max-width:100%;border-radius:8px;border:1px solid var(--line)}
 <script src="core.js"></script>
 <script>
 'use strict';
-var FIN_VERSION = 'alpha 0.2';
+var FIN_VERSION = 'alpha 0.3';
 
 /* ================= small tools ================= */
 function esc(s) { return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]; }); }
@@ -126,6 +138,7 @@ function sha256(ascii) {
 }
 function credOf(salt, pin) { return sha256(salt + ':' + pin); }
 var IC = {
+  talk: '<path d="M4 5h16v11H10l-5 4v-4H4z"/>',
   soon: '<rect x="3" y="5" width="18" height="16" rx="2"/><path d="M3 10h18M8 3v4M16 3v4"/>',
   'new': '<circle cx="12" cy="12" r="9"/><path d="M12 8v8M8 12h8"/>',
   mine: '<path d="M8 6h12M8 12h12M8 18h12M4 6h.01M4 12h.01M4 18h.01"/>',
@@ -176,9 +189,9 @@ var KV = (function () {
   };
 })();
 
-var S = { cfg: null, users: [], me: null, cred: '', cache: null, queue: [], verif: {}, online: true, syncing: false, lastSync: '', notices: [], local: null, files: {},
+var S = { cfg: null, users: [], me: null, cred: '', cache: null, queue: [], verif: {}, online: true, syncing: false, lastSync: '', notices: [], thanks: '', local: null, files: {}, shared: null, demoCom: [], comName: '', picking: false,
   ui: { screen: 'boot', tab: '', form: {}, modal: null, m: {}, month: '', pick: null, err: '', msg: '' }, _v: null };
-function emptyCache() { return { users: [], requests: [], deadlines: [], settings: null, since: 0 }; }
+function emptyCache() { return { users: [], requests: [], deadlines: [], comments: [], settings: null, since: 0 }; }
 function saveQueue() { KV.set('queue', S.queue); }
 function saveCache() { if (S.me) KV.set('cache:' + S.me.id, S.cache); }
 function myQueue() { return S.queue.filter(function (o) { return S.me && o.user === S.me.id; }); }
@@ -201,7 +214,7 @@ function call(req) {
 function V() {
   if (S._v) return S._v;
   var c = S.cache || emptyCache();
-  var db = { v: 1, rev: 0, seq: 0, users: clone(c.users), requests: clone(c.requests), deadlines: clone(c.deadlines), settings: clone(c.settings) || finNewDb().settings, opIds: [] };
+  var db = { v: 1, rev: 0, seq: 0, users: clone(c.users), requests: clone(c.requests), deadlines: clone(c.deadlines), comments: clone(c.comments || []), settings: clone(c.settings) || finNewDb().settings, opIds: [] };
   var me = finFind(db.users, S.me.id) || clone(S.me), pend = {}, isNew = {};
   myQueue().forEach(function (op) {
     if (op.t === 'req_new') isNew[op.d.id] = 1;
@@ -214,7 +227,7 @@ function V() {
 function fresh() { S._v = null; }
 var ERR = { section: 'You cannot do this for that section.', what: 'Write what you need.', amount: 'Write the amount.', line: 'Choose the budget line.', prio: 'Choose the priority.', date: 'Choose the date.',
   reason: 'Say why it is an Emergency.', role: 'Your role cannot do this.', status: 'This request has changed in the meantime. Look at it again.', fields: 'Something is missing.', id: 'Not found.',
-  pin: 'A PIN is needed.', last_admin: 'At least one administrator must stay.', photo: 'The photo could not be read.', server: 'The database had a problem. Try again.' };
+  pin: 'A PIN is needed.', last_admin: 'At least one administrator must stay.', photo: 'The photo could not be read.', server: 'The database had a problem. Try again.', comment: 'Write the comment.', full: 'There are too many comments. Tell the administrator.' };
 function errText(e) { return ERR[e] || ('Not accepted (' + e + ').'); }
 /* do one change: check it here first, show it at once, send it when there is internet */
 function act(t, d) {
@@ -246,8 +259,8 @@ function sync() {
       else if (op.t === 'pin') { S.cred = op.d.cred; remember(); }
     });
     S.queue = S.queue.filter(function (o) { return !done[o.id]; }); saveQueue();
-    if (res.full) { S.cache.users = res.users; S.cache.requests = res.requests; S.cache.deadlines = res.deadlines; }
-    else { mergeList(S.cache.users, res.users); mergeList(S.cache.requests, res.requests); mergeList(S.cache.deadlines, res.deadlines); }
+    if (res.full) { S.cache.users = res.users; S.cache.requests = res.requests; S.cache.deadlines = res.deadlines; S.cache.comments = res.comments || []; }
+    else { mergeList(S.cache.users, res.users); mergeList(S.cache.requests, res.requests); mergeList(S.cache.deadlines, res.deadlines); mergeList(S.cache.comments || (S.cache.comments = []), res.comments || []); }
     if (res.settings) S.cache.settings = res.settings;
     S.cache.since = res.rev; S.lastSync = res.now || nowIso();
     if (res.me) { S.me = res.me; }
@@ -336,13 +349,14 @@ function tabsFor() {
 }
 function head() {
   var h = '';
-  if (S.cfg && S.cfg.mode === 'demo') h += '<div class="demo">Demo: invented data. It stays on this phone.</div>';
+  if (S.cfg && S.cfg.mode === 'demo') h += '<div class="demo">Demo: invented data. It stays on this phone.' + (S.shared ? ' Only your comments are sent.' : '') + '</div>';
   h += '<div class="top">' + LOGO + '<div class="who">' + (S.me ? esc(S.me.name) : '') + '</div></div>';
   if (S.me) {
     var q = myQueue().length;
     if (!S.online) h += '<div class="net">No internet: saved on this phone' + (q ? ' · ' + q + ' to send' : '') + '</div>';
     else if (q) h += '<div class="net">Sending ' + q + '...</div>';
   }
+  if (S.thanks) h += '<div class="net ok">' + esc(S.thanks) + ' <button class="btn" data-a="noticeOk" style="min-height:36px;margin-left:8px">OK</button></div>';
   if (S.notices.length) h += '<div class="net bad">' + esc(S.notices.join(' ')) + ' <button class="btn" data-a="noticeOk" style="min-height:36px;margin-left:8px">OK</button></div>';
   return h;
 }
@@ -392,7 +406,9 @@ function scrLogin() {
     h += '<h1>Who are you?</h1>';
     if (!list.length) h += '<div class="box warn">The list of people is not on this phone yet. Open the app once with internet.</div>';
     h += '<div class="list">' + list.map(function (x) { return '<button type="button" class="btn user" data-a="pickUser" data-id="' + esc(x.id) + '"><span>' + esc(x.name) + '</span><span class="s m" style="font-weight:400;text-align:right">' + esc(roleText(x)) + '</span></button>'; }).join('') + '</div>';
-    h += '<button type="button" class="btn" data-a="forget">Use another link</button>';
+    if (S.cfg.mode === 'demo' && S.shared) h += '<button type="button" class="btn" data-a="leaveDemo">Leave the demo</button>';
+    else h += '<button type="button" class="btn" data-a="forget">Use another link</button>';
+    if (S.cfg.mode === 'shared') h += '<button type="button" class="btn" data-a="demo">Try the demo</button><div class="s m">Invented data, to try every role. The real requests are not touched.</div>';
   }
   return h + '<div class="s m center">CYP FIN ' + FIN_VERSION + '</div></main>';
 }
@@ -416,14 +432,15 @@ function reqCard(r, opt) {
 function scrSoon() {
   var v = V(), mine = v.deadlines.filter(function (x) { return !x.deleted && !x.asked && S.me.sections.indexOf(x.section) >= 0; }).map(function (x) { x.v = deadlineView(x); return x; }).sort(function (a, b) { return a.v.askBy < b.v.askBy ? -1 : 1; });
   var h = '<main><h1>Coming up</h1>';
-  if (!mine.length) h += '<div class="s m">No dates yet. Add the ones you already know: matches, exams, fees.</div>';
+  var canDl = finCanDeadline(S.me, '');
+  if (!mine.length) h += '<div class="s m">No dates yet. ' + (canDl ? 'Add the ones the project already knows: matches, exams, fees.' : 'The Accountant adds the dates of your section. For anything else, use New request.') + '</div>';
   mine.forEach(function (x) {
     h += '<div class="card">' + (S.me.sections.length > 1 ? '<div class="sec">' + esc(secName(x.section)) + '</div>' : '') + '<div class="row"><div class="b">' + esc(x.what) + '</div><div class="b num">' + money(x.amount) + '</div></div>' +
       '<div class="s">Needed ' + day(x.date) + (x.repeat ? ' · every month' : '') + '</div>' +
       '<div class="b' + (x.v.late || x.v.last ? ' bad' : '') + '">' + (x.v.late ? 'Late. You had to ask by ' + day(x.v.askBy) + '.' : x.v.last ? 'Ask today.' : 'Ask by ' + day(x.v.askBy) + '.') + '</div>' +
-      '<div class="btns"><button type="button" class="btn pri" data-a="askNow" data-id="' + esc(x.id) + '">Ask now</button><button type="button" class="btn" data-a="dlEdit" data-id="' + esc(x.id) + '" style="flex:0 0 auto">Change</button></div></div>';
+      '<div class="btns"><button type="button" class="btn pri" data-a="askNow" data-id="' + esc(x.id) + '">Ask now</button>' + (canDl ? '<button type="button" class="btn" data-a="dlEdit" data-id="' + esc(x.id) + '" style="flex:0 0 auto">Change</button>' : '') + '</div></div>';
   });
-  return h + '<button type="button" class="btn" data-a="dlNew">Add a date</button></main>';
+  return h + (canDl ? '<button type="button" class="btn" data-a="dlNew">Add a date</button>' : '') + '</main>';
 }
 
 function noticeBox() {
@@ -494,7 +511,7 @@ function scrDead() {
   var v = V(), open = v.deadlines.filter(function (x) { return !x.deleted && !x.asked; }).map(function (x) { x.v = deadlineView(x); return x; }).sort(function (a, b) { return a.v.askBy < b.v.askBy ? -1 : 1; });
   var late = open.filter(function (x) { return x.v.late; }).length;
   var h = '<main><h1>Deadlines</h1><div class="card big num">' + open.length + ' with no request · ' + late + ' late</div>';
-  if (!open.length) h += '<div class="s m">No open dates. The sections add them in "Coming up"; you can add them here too.</div>';
+  if (!open.length) h += '<div class="s m">No open dates. Add the ones the project already knows: matches, exams, fees. The sections see them in "Coming up".</div>';
   open.forEach(function (x) {
     h += '<div class="card"><div class="sec">' + esc(secName(x.section)) + '</div><div class="row"><div class="b">' + esc(x.what) + '</div><div class="b num">' + money(x.amount) + '</div></div><div class="s">Needed ' + day(x.date) + (x.repeat ? ' · every month' : '') + '</div>' +
       '<div class="b' + (x.v.late || x.v.last ? ' bad' : '') + '">' + (x.v.late ? 'No request. Late since ' + day(x.v.askBy) + '.' : x.v.last ? 'No request. Last day to ask is today.' : 'No request yet. Last day to ask: ' + day(x.v.askBy) + '.') + '</div>' +
@@ -547,12 +564,13 @@ function scrMore() {
   h += '<div class="list"><button type="button" class="btn user" data-a="allReqs">' + ic('mine') + '<span style="flex:1">' + (seesAll ? 'All requests' : 'All my requests') + '</span></button>';
   if (me.admin) h += '<button type="button" class="btn user" data-a="people">' + ic('people') + '<span style="flex:1">People and PINs</span></button>';
   if (me.role === 'director' || me.admin) h += '<button type="button" class="btn user" data-a="rules">' + ic('rules') + '<span style="flex:1">Rules</span></button>';
+  if (me.admin) { var nOpen = (V().comments || []).filter(function (c) { return !c.done; }).length; h += '<button type="button" class="btn user" data-a="comments">' + ic('talk') + '<span style="flex:1">Comments on the app' + (nOpen ? ' (' + nOpen + ')' : '') + '</span></button>'; }
   if (me.admin && S.cfg.mode === 'shared') h += '<button type="button" class="btn user" data-a="invite">' + ic('send') + '<span style="flex:1">Invite the staff</span></button>';
   h += '<button type="button" class="btn user" data-a="budget">' + ic('month') + '<span style="flex:1">Budget ' + FIN_BUDGET.year + '</span></button>';
   h += '<button type="button" class="btn user" data-a="installHelp">' + ic('phone') + '<span style="flex:1">Put CYP FIN on this phone</span></button></div>';
   var q = myQueue().length;
   h += '<div class="card"><div class="b">' + (S.cfg.mode === 'shared' ? 'Shared database' : S.cfg.mode === 'demo' ? 'Demo' : 'This phone only') + '</div><div class="s m">' + (S.cfg.mode === 'shared' ? (S.online ? 'Connected.' : 'No internet now.') + (S.lastSync ? ' Last check: ' + new Date(S.lastSync).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) + '.' : '') + (q ? ' ' + q + ' to send.' : '') : 'Other phones do not see this data.') + '</div>' +
-    (S.cfg.mode === 'shared' ? '<button type="button" class="btn" data-a="syncNow">Check now</button>' : '') + '</div>';
+    (S.cfg.mode === 'shared' ? '<button type="button" class="btn" data-a="syncNow">Check now</button>' : '') + (S.cfg.mode === 'demo' && S.shared ? '<button type="button" class="btn" data-a="leaveDemo">Leave the demo</button>' : '') + '</div>';
   return h + '<div class="s m center">CYP FIN ' + FIN_VERSION + '</div></main>';
 }
 function scrAll() {
@@ -568,6 +586,24 @@ function scrPeople() {
   var v = V(), h = '<main><div class="row" style="align-items:center"><h1>People</h1><button type="button" class="btn" data-a="tab" data-id="more">Back</button></div><button type="button" class="btn pri" data-a="personNew">Add a person</button><div class="list">';
   v.users.slice().sort(function (a, b) { return a.name < b.name ? -1 : 1; }).forEach(function (u) { h += '<button type="button" class="btn user" data-a="personEdit" data-id="' + esc(u.id) + '"><span>' + esc(u.name) + (u.active === false ? ' (off)' : '') + '</span><span class="s m" style="font-weight:400;text-align:right">' + esc(roleText(u)) + '</span></button>'; });
   return h + '</div></main>';
+}
+function comWhen(c) { return c.time ? day(finToday(c.time)) + ', ' + new Date(c.time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : ''; }
+function comList() { var done = !!S.ui.form.cDone; return (V().comments || []).filter(function (c) { return !!c.done === done; }).sort(function (a, b) { return (b.time || '') < (a.time || '') ? -1 : 1; }); }
+function comLine(c) { return comWhen(c) + ' | ' + c.byName + (c.demo ? ' (demo)' : '') + ' | ' + c.page + (c.target ? ' | "' + c.target + '"' : '') + '\n' + c.text; }
+function scrComments() {
+  var all = V().comments || [], open = all.filter(function (c) { return !c.done; }).length, done = !!S.ui.form.cDone, list = comList();
+  var h = '<main><div class="row" style="align-items:center"><h1>Comments on the app</h1><button type="button" class="btn" data-a="tab" data-id="more">Back</button></div>' +
+    '<div class="btns"><button type="button" class="btn' + (done ? '' : ' on') + '" data-a="comFilter" data-id="">Open (' + open + ')</button><button type="button" class="btn' + (done ? ' on' : '') + '" data-a="comFilter" data-id="1">Done (' + (all.length - open) + ')</button></div>';
+  if (!list.length) h += '<div class="s m">' + (done ? 'Nothing marked as done.' : 'No open comments.') + '</div>';
+  else if (!done) h += '<textarea id="com-copy" class="in" rows="2" readonly style="position:absolute;left:-9999px" aria-hidden="true" tabindex="-1">' + esc(list.map(comLine).join('\n\n')) + '</textarea><button type="button" class="btn" data-a="copyText" data-id="com-copy">Copy the open comments</button>';
+  list.slice(0, 300).forEach(function (c) {
+    h += '<div class="card"><div class="row"><div class="b">' + esc(c.byName) + '</div><div class="s m">' + esc(comWhen(c)) + '</div></div>' +
+      '<div class="wrap"><span class="sec">' + esc(c.page || 'Screen not known') + '</span>' + (c.demo ? '<span class="pill warn">Demo</span>' : '') + '<span class="s m">' + (c.phone ? 'Phone' : 'Computer') + ' · ' + esc(c.version) + '</span></div>' +
+      (c.target ? '<div class="quote">' + esc(c.target) + '</div>' : '') + '<div class="cmt">' + esc(c.text) + '</div>' +
+      (c.done ? '<div class="s m">Done by ' + esc(c.doneBy) + ', ' + when(c.doneAt) + '</div>' : '') +
+      '<button type="button" class="btn" data-a="comDone" data-id="' + esc(c.id) + '">' + (c.done ? 'Open again' : 'Done') + '</button></div>';
+  });
+  return h + '</main>';
 }
 
 /* ---- windows that open over the screen ---- */
@@ -627,30 +663,69 @@ function modal() {
   if (x.type === 'pin') {
     h += '<h1>Change my PIN</h1>' + mField('PIN now', 'pn-old', 'old', 'password', 'inputmode="numeric" autocomplete="off"') + mField('New PIN', 'pn-new', 'pin', 'password', 'inputmode="numeric" autocomplete="new-password"', '4 to 8 numbers.') + mField('New PIN again', 'pn-new2', 'pin2', 'password', 'inputmode="numeric" autocomplete="new-password"') + err + '<div class="btns"><button type="button" class="btn pri" data-a="pinSave">Save</button>' + close + '</div>';
   }
+  if (x.type === 'comment') {
+    h += '<h1>Comment</h1>' + (m.target ? '<div class="s m">About:</div><div class="quote">' + esc(m.target) + '</div>' : '') +
+      '<div class="field"><label for="cm-text">Your comment</label><textarea class="in" id="cm-text" data-m="text" rows="4">' + esc(m.text || '') + '</textarea></div>' +
+      (S.cfg.mode === 'demo' ? mField('Your name', 'cm-name', 'name', 'text', 'autocomplete="name"') : '') + err +
+      '<div class="btns"><button type="button" class="btn pri" data-a="comSave">Save the comment</button>' + close + '</div>';
+  }
   if (x.type === 'text') { h += '<h1>' + esc(x.title) + '</h1>' + x.html + close; }
   if (x.type === 'ask') { h += '<h1>' + esc(x.title) + '</h1><div>' + esc(x.text) + '</div><div class="btns"><button type="button" class="btn pri" data-a="' + x.yes + '">' + esc(x.yesText) + '</button>' + close + '</div>'; }
   return '<div class="modal" data-a="modalBg"><div class="sheet" role="dialog" aria-modal="true">' + h + '</div></div>';
 }
 
-var SCREENS = { soon: scrSoon, 'new': scrNew, mine: scrMine, decide: scrDecide, dead: scrDead, month: scrMonth, pay: scrPay, rec: scrRec, more: scrMore, all: scrAll, people: scrPeople, budget: scrBudget };
+var SCREENS = { soon: scrSoon, 'new': scrNew, mine: scrMine, decide: scrDecide, dead: scrDead, month: scrMonth, pay: scrPay, rec: scrRec, more: scrMore, all: scrAll, people: scrPeople, budget: scrBudget, comments: scrComments };
 function render() {
   var app = document.getElementById('app'), ae = document.activeElement, keep = ae && ae.id && app.contains(ae) ? { id: ae.id, s: ae.selectionStart, e: ae.selectionEnd } : null, y = window.scrollY, sheet = app.querySelector('.sheet'), sy = sheet ? sheet.scrollTop : 0;
   var h;
   if (S.ui.screen === 'boot') h = head() + '<main><div class="s m">Opening...</div></main>';
   else if (S.ui.screen === 'start') h = head() + scrStart();
   else if (S.ui.screen === 'first') h = head() + scrFirst();
-  else if (S.ui.screen === 'login') h = head() + scrLogin();
+  else if (S.ui.screen === 'login') h = head() + scrLogin() + modal();
   else {
     var body = (SCREENS[S.ui.tab] || scrMore)();
     if (EXPORTS[S.ui.tab]) { var cut = body.lastIndexOf('</main>'); body = body.slice(0, cut) + '<button type="button" class="btn" data-a="exportPage">' + ic('down') + 'Export in Excel</button>' + body.slice(cut); }
     h = head() + body + nav() + modal();
   }
+  h += comButton();
+  app.className = S.picking ? 'picking' : '';
   app.innerHTML = h;
   if (keep) { var el = document.getElementById(keep.id); if (el) { try { el.focus(); if (keep.s != null && el.setSelectionRange && /text|password|search|tel|url/.test(el.type)) el.setSelectionRange(keep.s, keep.e); } catch (e) {} } }
   if (S.ui.keepScroll) { window.scrollTo(0, y); var s2 = app.querySelector('.sheet'); if (s2) s2.scrollTop = sy; } else window.scrollTo(0, 0);
   S.ui.keepScroll = true;
 }
-function go(tab) { S.ui.tab = tab; S.ui.err = ''; S.ui.msg = ''; S.ui.modal = null; S.ui.merr = ''; S.ui.keepScroll = false; render(); }
+/* ================= comments on the app: a button on every screen, also in the demo ================= */
+function comCan() { return !!S.cfg && (!!S.me || (S.cfg.mode === 'demo' && S.ui.screen === 'login')); }
+function comButton() {
+  if (!comCan()) return '';
+  if (S.picking) return '<div class="pickbar"><div><span>Tap the word or the place you want to comment.</span><button type="button" class="btn" data-a="comCancel">Cancel</button></div></div>';
+  if (S.ui.modal && S.ui.modal.type === 'comment') return '';
+  return '<div class="fabwrap' + (S.ui.modal ? ' top' : S.me ? '' : ' low') + '"><div><button type="button" class="fab" data-a="comStart">' + ic('talk') + 'Comment</button></div></div>';
+}
+function comPage() {
+  var el = document.querySelector('.sheet h1') || document.querySelector('main h1'), t = el ? el.innerText.replace(/\s+/g, ' ').trim() : '';
+  if (document.querySelector('.sheet') && t) t = 'Window: ' + t;
+  if (S.cfg.mode === 'demo' && S.me) t += ' · ' + S.me.name;
+  return t.slice(0, 40);
+}
+function comTarget(el) {
+  var t = '';
+  if (/^(INPUT|SELECT|TEXTAREA)$/.test(el.tagName)) { var lb = el.id ? document.querySelector('label[for="' + el.id + '"]') : el.closest('label'); t = lb ? lb.innerText : (el.getAttribute('aria-label') || ''); if (el.tagName === 'SELECT' && el.selectedIndex >= 0) t += ': ' + el.options[el.selectedIndex].text; }
+  else { var n = el.closest('button,a,label,h1,h2,.pill,.tag,.sec,.b,.s,.big,.band,.box,.quote,.cmt,.card,.field') || el; if (n.id === 'app' || n.tagName === 'MAIN' || n.tagName === 'NAV') n = el; t = n.innerText || ''; }
+  return t.replace(/\s+/g, ' ').trim().slice(0, 160);
+}
+function isPhone() { return /Android|iPhone|iPad|iPod/.test(navigator.userAgent) || window.innerWidth < 700; }
+function sendDemoComments() {
+  if (!S.shared || !S.demoCom.length || S.comSending) return Promise.resolve(false);
+  S.comSending = true;
+  var c = S.demoCom[0], req = { action: 'comment', key: S.shared.key, id: c.id, name: c.name, page: c.page, target: c.target, text: c.text, version: c.version, phone: c.phone };
+  return fetch(S.shared.url, { method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' }, body: JSON.stringify(req), redirect: 'follow' }).then(function (r) { return r.json(); }).then(function (res) {
+    S.comSending = false;
+    if (res.ok || res.error === 'fields') { S.demoCom = S.demoCom.filter(function (x) { return x.id !== c.id; }); KV.set('demoCom', S.demoCom); return S.demoCom.length ? sendDemoComments() : true; }
+    return false;
+  }).catch(function () { S.comSending = false; return false; });
+}
+function go(tab) { S.thanks = ''; S.ui.tab = tab; S.ui.err = ''; S.ui.msg = ''; S.ui.modal = null; S.ui.merr = ''; S.ui.keepScroll = false; render(); }
 function openModal(x, m) { S.ui.modal = x; S.ui.m = m || {}; S.ui.merr = ''; render(); }
 function refreshBoxes() {
   var f = S.ui.form, a = document.getElementById('linebox'), b = document.getElementById('noticebox'), s = document.getElementById('sendbtn');
@@ -698,6 +773,7 @@ function hello() {
 }
 function startWith(cfg) {
   S.cfg = cfg; KV.set('cfg', cfg);
+  if (cfg.mode === 'shared') { S.shared = { url: cfg.url, key: cfg.key }; KV.set('shared', S.shared); sendDemoComments(); }
   return hello().then(function (res) {
     S.ui.screen = res && res.ok && res.empty ? 'first' : 'login'; S.ui.form = {}; S.ui.err = '';
     var ses = null; try { ses = JSON.parse(sessionStorage.getItem('fin-session') || 'null'); } catch (e) {}
@@ -828,6 +904,7 @@ function exportSheets() {
     out.push({ name: 'By section ' + m, head: ['Section', 'Requests', 'Emergency', 'Asked (K)', 'Of which cash (K)', 'Paid, receipt missing', 'Budget ' + FIN_BUDGET.year + ' (K)', 'Approved so far (K)', '% of the budget'], rows: Object.keys(rows).map(function (k) { var g = rows[k], s = SEC[k], u = sectionUse(k); return [secName(k), g.n, g.em, g.amount, g.cash, g.rec, s ? s.total : '', u, s ? pct(u, s.total) : '']; }) });
     rq('Requests ' + m, list.sort(byNew));
   } else if (t === 'people') out.push({ name: 'People', head: ['Name', 'Role', 'Sections', 'Administrator', 'Can enter'], rows: v.users.map(function (u) { return [u.name, { head: 'Section head', director: 'Director', accountant: 'Accountant', viewer: 'Can look' }[u.role], (u.sections || []).map(secName).join(', '), u.admin ? 'Yes' : '', u.active === false ? 'No' : 'Yes']; }) });
+  else if (t === 'comments') out.push({ name: f.cDone ? 'Comments done' : 'Open comments', head: ['Time', 'Who', 'From the demo', 'Screen', 'Word or place', 'Comment', 'Version', 'Phone or computer', 'Done', 'Done by', 'Done on'], rows: comList().map(function (c) { return [c.time ? finToday(c.time) + ' ' + new Date(Date.parse(c.time) + FIN_TZ_MINUTES * 60000).toISOString().slice(11, 16) : '', c.byName, c.demo ? 'Demo' : '', c.page, c.target, c.text, c.version, c.phone ? 'Phone' : 'Computer', c.done ? 'Done' : '', c.doneBy, c.doneAt ? finToday(c.doneAt) : '']; }) });
   else if (t === 'budget') {
     var secs = budgetSections(), lines = [];
     out.push({ name: 'Sections', head: ['Code', 'Section', 'Budget ' + FIN_BUDGET.year + ' (K)', 'Approved so far (K)', '% of the budget', 'Left (K)'], rows: secs.map(function (s) { var u = sectionUse(s.code); return [s.code, s.name, s.total, u, pct(u, s.total), s.total - u]; }) });
@@ -836,7 +913,7 @@ function exportSheets() {
   }
   return out;
 }
-var EXPORTS = { soon: 'coming-up', mine: 'my-requests', decide: 'to-decide', dead: 'deadlines', month: 'by-section', pay: 'to-pay', rec: 'receipts', all: 'requests', people: 'people', budget: 'budget' };
+var EXPORTS = { soon: 'coming-up', mine: 'my-requests', decide: 'to-decide', dead: 'deadlines', month: 'by-section', pay: 'to-pay', rec: 'receipts', all: 'requests', people: 'people', budget: 'budget', comments: 'comments' };
 function scrBudget() {
   var open = S.ui.form.bsec, h = '<main><div class="row" style="align-items:center"><h1>Budget ' + FIN_BUDGET.year + '</h1><button type="button" class="btn" data-a="tab" data-id="more">Back</button></div>';
   budgetSections().forEach(function (s) {
@@ -850,15 +927,16 @@ function scrBudget() {
 
 var H = {
   tab: function (el) { if (el.dataset.id === 'new' && S.ui.tab !== 'new') { S.ui.form = {}; } go(el.dataset.id); },
-  noticeOk: function () { S.notices = []; render(); },
+  noticeOk: function () { S.notices = []; S.thanks = ''; render(); },
   connect: function () {
     var cfg = parseLink(S.ui.form.link);
     if (!cfg) { S.ui.err = 'This is not a CYP FIN link. Copy the whole link from the message you received.'; render(); return; }
     startWith(cfg);
   },
-  demo: function () { S.local = demoDb(); S.files = {}; KV.set('localdb', S.local); startWith({ mode: 'demo', key: 'local' }); },
+  demo: function () { S.me = null; S.cred = ''; S.cache = null; fresh(); try { sessionStorage.removeItem('fin-session'); } catch (e) {} S.ui.pick = null; S.ui.msg = ''; S.local = demoDb(); S.files = {}; KV.set('localdb', S.local); startWith({ mode: 'demo', key: 'local' }); },
   localOnly: function () { S.local = null; S.files = {}; KV.set('localdb', null); startWith({ mode: 'local', key: 'local' }); },
-  forget: function () { S.cfg = null; KV.set('cfg', null); S.users = []; KV.set('users', []); S.ui = { screen: 'start', tab: '', form: {}, modal: null, m: {}, month: '', pick: null, err: '', msg: '' }; render(); },
+  leaveDemo: function () { if (!S.shared) return H.forget(); S.me = null; S.cred = ''; S.cache = null; fresh(); try { sessionStorage.removeItem('fin-session'); } catch (e) {} S.ui = { screen: 'boot', tab: '', form: {}, modal: null, m: {}, month: '', pick: null, err: '', msg: '' }; S.users = []; startWith({ mode: 'shared', url: S.shared.url, key: S.shared.key }); },
+  forget: function () { if (S.cfg && S.cfg.mode === 'shared') { S.shared = null; KV.set('shared', null); } S.cfg = null; KV.set('cfg', null); S.users = []; KV.set('users', []); S.ui = { screen: 'start', tab: '', form: {}, modal: null, m: {}, month: '', pick: null, err: '', msg: '' }; render(); },
   firstAdmin: function () {
     var f = S.ui.form, name = String(f.name || '').trim();
     if (!name) { S.ui.err = 'Write your name.'; return render(); }
@@ -907,7 +985,7 @@ var H = {
     go('mine'); S.ui.msg = 'Sent to the Director.'; render();
   },
   openReq: function (el) { openModal({ type: 'req', id: el.dataset.id }); },
-  closeModal: function () { S.ui.modal = null; S.ui.merr = ''; render(); },
+  closeModal: function () { var back = S.ui.modal && S.ui.modal.back; S.ui.modal = back ? back.modal : null; S.ui.m = back ? back.m : {}; S.ui.merr = ''; render(); },
   modalBg: function (el, ev) { if (ev.target === el) H.closeModal(); },
   cancelReq: function (el) { var r = act('req_cancel', { id: el.dataset.id }); if (!r.ok) { S.ui.merr = errText(r.error); } render(); },
   seeFile: function (el) {
@@ -962,11 +1040,31 @@ var H = {
     var salt = uid(), r = act('pin', { salt: salt, cred: credOf(salt, m.pin) });
     if (!r.ok) S.ui.merr = errText(r.error); else { S.ui.modal = null; S.notices.push('PIN changed.'); } render();
   },
-  invite: function () {
-    var link = staffLink(), msg = 'CYP FIN, to ask for money and to approve payments.\n1. Open this link with internet: ' + link + '\n2. Choose your name.\n3. Write the PIN I give you. You can change it in More.';
-    openModal({ type: 'text', title: 'Invite the staff', html: '<div class="s m">Send this message. Give each person their own PIN in a separate message.</div><textarea class="in" id="inv-text" rows="7" readonly>' + esc(msg) + '</textarea><div class="btns"><button type="button" class="btn pri" data-a="copyInvite">Copy</button><a class="btn" href="https://wa.me/?text=' + encodeURIComponent(msg) + '">WhatsApp</a></div>' });
+  comments: function () { S.ui.form = {}; go('comments'); },
+  comFilter: function (el) { S.ui.form.cDone = el.dataset.id; S.ui.keepScroll = false; render(); },
+  comDone: function (el) { var c = finFind(V().comments || [], el.dataset.id); if (!c) return; var r = act('comment_done', { id: c.id, done: !c.done }); if (!r.ok) S.notices.push(errText(r.error)); render(); },
+  comStart: function () { S.picking = true; render(); },
+  comCancel: function () { S.picking = false; render(); },
+  comSave: function () {
+    var m = S.ui.m, text = String(m.text || '').trim(), demo = S.cfg.mode === 'demo', name = String(m.name || '').trim();
+    if (!text) { S.ui.merr = ERR.comment; return render(); }
+    if (demo && !name) { S.ui.merr = 'Write your name, so we know who to thank.'; return render(); }
+    var c = { id: uid(), page: m.page || '', target: m.target || '', text: text.slice(0, 600), version: FIN_VERSION, phone: isPhone() };
+    if (S.me) { var r = act('comment_new', c); if (!r.ok) { S.ui.merr = errText(r.error); return render(); } }
+    var back = S.ui.modal.back; S.ui.modal = back ? back.modal : null; S.ui.m = back ? back.m : {}; S.ui.merr = '';
+    if (!demo) { S.thanks = 'Comment saved. Thank you.'; return render(); }
+    S.comName = name; KV.set('comName', name);
+    c.name = name; S.demoCom.push(c); KV.set('demoCom', S.demoCom);
+    if (!S.shared) { S.thanks = 'Comment kept on this phone. It is sent when this phone opens the link for the staff.'; return render(); }
+    render();
+    sendDemoComments().then(function (ok) { S.thanks = ok ? 'Comment sent. Thank you.' : (navigator.onLine === false ? 'No internet: ' : 'It could not be sent now: ') + 'the comment is kept on this phone and is sent later.'; render(); });
   },
-  copyInvite: function () { var t = document.getElementById('inv-text'); if (!t) return; t.select(); try { navigator.clipboard.writeText(t.value).catch(function () { document.execCommand('copy'); }); } catch (e) { try { document.execCommand('copy'); } catch (x) {} } S.notices.push('Copied.'); render(); },
+  invite: function () {
+    var link = staffLink(), msg = 'CYP FIN, to ask for money and to approve payments.\n1. Open this link with internet: ' + link + '\n2. Choose your name.\n3. Write the PIN I give you. You can change it in More.', dmsg = 'CYP FIN, the demo. Nothing here is real.\n1. Open this link with internet: ' + link + '&demo=1\n2. Choose a role. The PIN is 1111.\n3. Tap "Comment" to tell us what is not clear.';
+    openModal({ type: 'text', title: 'Invite the staff', html: '<div class="s m">Send this message. Give each person their own PIN in a separate message.</div><textarea class="in" id="inv-text" rows="7" readonly>' + esc(msg) + '</textarea><div class="btns"><button type="button" class="btn pri" data-a="copyText" data-id="inv-text">Copy</button><a class="btn" href="https://wa.me/?text=' + encodeURIComponent(msg) + '">WhatsApp</a></div>' +
+      '<div class="b">Only to try the app</div><div class="s m">This message opens the demo: invented data, every role, PIN 1111. The comments people write there arrive in More, Comments on the app. The link holds the same key as the link for the staff: send it only to people of the project.</div><textarea class="in" id="inv-demo" rows="5" readonly>' + esc(dmsg) + '</textarea><div class="btns"><button type="button" class="btn pri" data-a="copyText" data-id="inv-demo">Copy</button><a class="btn" href="https://wa.me/?text=' + encodeURIComponent(dmsg) + '">WhatsApp</a></div>' });
+  },
+  copyText: function (el) { var t = document.getElementById(el.dataset.id); if (!t) return; t.select(); try { navigator.clipboard.writeText(t.value).catch(function () { document.execCommand('copy'); }); } catch (e) { try { document.execCommand('copy'); } catch (x) {} } S.notices.push('Copied.'); render(); },
   installHelp: function () {
     var ua = navigator.userAgent, ios = /iPhone|iPad|iPod/.test(ua), steps = ios ? 'In Safari: tap Share, then "Add to Home Screen".' : /Android/.test(ua) ? 'In Chrome: tap the three dots, then "Install app" or "Add to Home screen".' : 'In Chrome or Edge: use the install icon in the address bar. In Safari on Mac: File, then "Add to Dock".';
     openModal({ type: 'text', title: 'Put CYP FIN on this phone', html: (S.installEvt ? '<button type="button" class="btn pri" data-a="install">Install CYP FIN</button>' : '') + '<div>' + steps + '</div><div class="s m">Open the app once with internet. After that it also opens without internet, and what you write is sent when internet comes back.</div>' });
@@ -982,6 +1080,15 @@ var H = {
   }
 };
 
+/* while choosing the place of a comment, a tap does not press anything: it only says where */
+document.addEventListener('mousedown', function (ev) { if (S.picking && !ev.target.closest('.pickbar')) ev.preventDefault(); }, true);
+document.addEventListener('click', function (ev) {
+  if (!S.picking || ev.target.closest('.pickbar')) return;
+  ev.preventDefault(); ev.stopPropagation();
+  var m = { target: comTarget(ev.target), page: comPage(), name: S.comName, text: '' }, back = S.ui.modal ? { modal: S.ui.modal, m: S.ui.m } : null;
+  S.picking = false; S.ui.modal = { type: 'comment', back: back }; S.ui.m = m; S.ui.merr = ''; render();
+  var ta = document.getElementById('cm-text'); if (ta) ta.focus();
+}, true);
 document.addEventListener('click', function (ev) {
   var el = ev.target.closest('[data-a]'); if (!el) return;
   var inner = ev.target.closest('button,a,input,select,textarea,label');
@@ -1020,7 +1127,7 @@ document.addEventListener('keydown', function (ev) {
   if (ev.target && ev.target.tagName === 'DIV' && ev.target.dataset.a && H[ev.target.dataset.a]) { H[ev.target.dataset.a](ev.target, ev); return; }
   if (id === 'lg-pin') H.login(); else if (id === 'st-link') H.connect(); else if (id === 'fa-pin2') H.firstAdmin();
 });
-window.addEventListener('online', function () { sync(); });
+window.addEventListener('online', function () { sync(); sendDemoComments(); });
 window.addEventListener('offline', function () { S.online = false; render(); });
 window.addEventListener('beforeinstallprompt', function (e) { e.preventDefault(); S.installEvt = e; });
 document.addEventListener('visibilitychange', function () { if (!document.hidden) sync(); });
@@ -1029,11 +1136,13 @@ setInterval(function () { if (!document.hidden && S.me && S.cfg && S.cfg.mode ==
 /* ================= start ================= */
 (function boot() {
   render();
-  var fromLink = parseLink(location.search + location.hash);
+  var fromLink = parseLink(location.search + location.hash), wantDemo = !!fromLink && /[?&#]demo=1/.test(location.search + location.hash);
   if (fromLink) { try { history.replaceState(null, '', location.pathname); } catch (e) {} }
-  Promise.all([KV.get('cfg'), KV.get('queue'), KV.get('verif'), KV.get('users'), KV.get('localdb'), KV.get('localfiles')]).then(function (a) {
-    S.queue = a[1] || []; S.verif = a[2] || {}; S.users = a[3] || []; S.local = a[4] || null; S.files = a[5] || {};
+  Promise.all([KV.get('cfg'), KV.get('queue'), KV.get('verif'), KV.get('users'), KV.get('localdb'), KV.get('localfiles'), KV.get('shared'), KV.get('demoCom'), KV.get('comName')]).then(function (a) {
+    S.queue = a[1] || []; S.verif = a[2] || {}; S.users = a[3] || []; S.local = a[4] || null; S.files = a[5] || {}; S.shared = a[6] || null; S.demoCom = a[7] || []; S.comName = a[8] || '';
+    if (wantDemo) { S.shared = { url: fromLink.url, key: fromLink.key }; KV.set('shared', S.shared); sendDemoComments(); return H.demo(); }
     var cfg = fromLink || a[0];
+    if (cfg && cfg.mode === 'demo') sendDemoComments();
     if (!cfg) { S.ui.screen = 'start'; return render(); }
     return startWith(cfg);
   });

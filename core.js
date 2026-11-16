@@ -7,7 +7,7 @@ var FIN_ROLES = ['head', 'director', 'accountant', 'viewer'];
 var FIN_TZ_MINUTES = 120; /* Zambia, UTC+2 */
 
 function finNewDb() {
-  return { v: 1, rev: 0, seq: 0, users: [], requests: [], deadlines: [],
+  return { v: 1, rev: 0, seq: 0, users: [], requests: [], deadlines: [], comments: [],
     settings: { rev: 0, noticeDays: 5, approvalDay: 4, countFrom: '2026-12-01', weeks: {} }, opIds: [] };
 }
 
@@ -49,7 +49,13 @@ function finHasSection(u, code) { return (u.sections || []).indexOf(code) >= 0; 
 function finSeesAll(u) { return u.role === 'director' || u.role === 'accountant' || u.role === 'viewer' || !!u.admin; }
 function finSeesRequest(u, r) { return finSeesAll(u) || finHasSection(u, r.section) || r.by === u.id; }
 function finCanAskFor(u, code) { return finHasSection(u, code) || u.role === 'accountant'; }
-function finCanDeadline(u, code) { return u.role === 'director' || u.role === 'accountant' || !!u.admin || finHasSection(u, code); }
+/* the dates of the agenda are kept by the Accountant, the Director and the administrator; a section head sees them and asks */
+function finCanDeadline(u, code) { return u.role === 'director' || u.role === 'accountant' || !!u.admin; }
+/* a comment on the app itself: which screen, which word, what the person says */
+function finCommentRec(d, nowIso, by, byName, demo) {
+  return { id: String(d.id), time: nowIso, by: by, byName: byName, demo: !!demo, page: finText(d.page, 40), target: finText(d.target, 160), text: finText(d.text, 600),
+    version: finText(d.version, 20), phone: !!d.phone, done: false, doneBy: '', doneAt: '' };
+}
 function finText(x, max) { return String(x == null ? '' : x).replace(/\s+/g, ' ').trim().slice(0, max || 200); }
 
 /* ---- one change. Returns {ok:true} or {ok:false, error:'...'}; "info" collects what the store must write ---- */
@@ -154,6 +160,26 @@ function finApply(db, u, op, nowIso, store, info) {
     return { ok: true };
   }
 
+  if (t === 'comment_new') {
+    if (!db.comments) db.comments = [];
+    if (!d.id || finFind(db.comments, d.id)) return fail('id');
+    if (!finText(d.text)) return fail('comment');
+    if (db.comments.length >= 3000) return fail('full');
+    x = finCommentRec(d, nowIso, u.id, u.name, false);
+    db.comments.push(x); bump(x);
+    if (info) { info.comments.push(x); }
+    audit('Comment on the app', x.page + ': ' + x.text.slice(0, 80));
+    return { ok: true };
+  }
+  if (t === 'comment_done') {
+    if (!u.admin) return fail('role');
+    x = finFind(db.comments || [], d.id);
+    if (!x) return fail('id');
+    x.done = d.done !== false; x.doneBy = x.done ? u.name : ''; x.doneAt = x.done ? nowIso : '';
+    bump(x); if (info) info.comments.push(x);
+    return { ok: true };
+  }
+
   /* everything below changes one request */
   r = finFind(db.requests, d.id);
   if (!r) return fail('id');
@@ -222,6 +248,19 @@ function finHandle(req, store) {
     return { ok: true, users: pub() };
   }
 
+  if (!db.comments) db.comments = [];
+  /* a comment from the demo: the link is enough, the person writes a name */
+  if (a === 'comment') {
+    var who = finText(req.name, 60);
+    if (!req.id || !who || !finText(req.text)) return { ok: false, error: 'fields' };
+    if (finFind(db.comments, req.id)) return { ok: true, again: true };
+    if (db.comments.length >= 3000) return { ok: false, error: 'full' };
+    var cm = finCommentRec(req, now, '', who, true);
+    db.rev++; cm.rev = db.rev; db.comments.push(cm);
+    store.save(db, { requests: [], comments: [cm], audit: [{ time: now, user: who + ' (demo)', action: 'Comment on the app', no: '', detail: cm.page + ': ' + cm.text.slice(0, 80) }] });
+    return { ok: true };
+  }
+
   var u = finFind(db.users, req.user);
   if (!u || u.active === false) return { ok: false, error: 'user' };
   if (u.lockUntil && now < u.lockUntil) return { ok: false, error: 'locked', until: u.lockUntil };
@@ -244,7 +283,7 @@ function finHandle(req, store) {
   }
   if (a !== 'sync') return { ok: false, error: 'action' };
 
-  var results = [], info = { requests: [], audit: [] }, ops = req.ops || [];
+  var results = [], info = { requests: [], audit: [], comments: [] }, ops = req.ops || [];
   for (i = 0; i < ops.length; i++) {
     var op = ops[i];
     if (!op || !op.id) { results.push({ id: '', ok: false, error: 'op' }); continue; }
@@ -260,10 +299,12 @@ function finHandle(req, store) {
 
   var since = Number(req.since) || 0, full = since === 0 || (u.rev || 0) > since, out = { ok: true, results: results, rev: db.rev, full: full, now: now, me: finPublicUser(u) };
   if (full) since = 0;
-  out.users = []; out.requests = []; out.deadlines = [];
+  out.users = []; out.requests = []; out.deadlines = []; out.comments = [];
   for (i = 0; i < db.users.length; i++) if ((db.users[i].rev || 0) > since) out.users.push(finPublicUser(db.users[i]));
   for (i = 0; i < db.requests.length; i++) if (db.requests[i].rev > since && finSeesRequest(u, db.requests[i])) out.requests.push(db.requests[i]);
   for (i = 0; i < db.deadlines.length; i++) if (db.deadlines[i].rev > since && (finSeesAll(u) || finHasSection(u, db.deadlines[i].section))) out.deadlines.push(db.deadlines[i]);
+  /* the administrator reads all the comments; the others get back their own */
+  for (i = 0; i < db.comments.length; i++) if (db.comments[i].rev > since && (u.admin || db.comments[i].by === u.id)) out.comments.push(db.comments[i]);
   if ((db.settings.rev || 0) > since || full) out.settings = db.settings;
   return out;
 }
