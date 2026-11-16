@@ -271,7 +271,7 @@ function finHandle(req, store) {
 /* ===== Google side: a Google Sheet shows the requests and the log; Drive holds the database file and the photos =====
    How to install: open the Google Sheet "CYP FIN database" > Extensions > Apps Script > paste this whole file > Save.
    Run "setup" once. Then Deploy > New deployment > Web app > Execute as: Me > Who has access: Anyone.
-   Run "link" to see the key. The link for the app is the web app URL (it ends with /exec) followed by ?k= and the key. */
+   Write the web app URL in WEB_APP_URL (near the end of this file) and run "link": the link for the staff appears in the sheet "link". */
 var SHEET_ID = ''; /* leave empty when the script is opened from inside the Sheet */
 var DB_FILE = 'cyp-fin-database.json';
 var REQ_HEAD = ['No', 'Sent', 'Section', 'What', 'Amount (K)', 'Budget line', 'Line name', 'Priority', 'Needed', 'Notice (working days)', 'Emergency', 'Reason', 'Pay by', 'Status', 'Asked by', 'Decided by', 'Decided at', 'Note', 'Paid by', 'Paid at', 'Receipt', 'Quotation photo', 'Receipt photo', 'Id'];
@@ -341,10 +341,17 @@ function doGet(e) { return ContentService.createTextOutput('CYP FIN shared datab
 function setup() {
   sheet_('requests', REQ_HEAD); sheet_('log', LOG_HEAD); photos_();
   if (!props_().getProperty('key')) props_().setProperty('key', (Utilities.getUuid() + Utilities.getUuid()).replace(/-/g, ''));
-  Logger.log('Ready. Now: Deploy > New deployment > Web app > Execute as: Me > Who has access: Anyone. Then run the function "link".');
+  Logger.log('Ready. Now: Deploy > New deployment > Web app > Execute as: Me > Who has access: Anyone. Then write the web app URL in WEB_APP_URL and run the function "link".');
 }
-/* Run after the deployment: shows the key. */
+/* Run after the deployment: writes the link for the staff in the sheet "link".
+   First write here the web app URL (Deploy > Manage deployments, it ends with /exec) and the address of the app. */
+var WEB_APP_URL = '';
+var APP_URL = 'https://maurobif-blip.github.io/cyp-fin/';
 function link() {
-  Logger.log('Key: ' + props_().getProperty('key'));
-  Logger.log('Link for the app = web app URL from "Manage deployments" (it ends with /exec) + ?k= + the key above.');
+  if (!WEB_APP_URL) { Logger.log('Write the web app URL (it ends with /exec) in WEB_APP_URL, then run "link" again.'); return; }
+  var code = Utilities.base64EncodeWebSafe(WEB_APP_URL + '|' + props_().getProperty('key')).replace(/=+$/, '');
+  var sh = sheet_('link', ['CYP FIN: link for the staff. Keep it inside the team. Each person still needs a personal PIN.']);
+  sh.getRange(2, 1).setValue(APP_URL + '?db=' + code);
+  sh.setColumnWidth(1, 900);
+  Logger.log('Done. The link for the staff is in the sheet "link", cell A2.');
 }
