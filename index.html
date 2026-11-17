@@ -130,7 +130,7 @@ img.photo{max-width:100%;border-radius:8px;border:1px solid var(--line)}
 <script src="core.js"></script>
 <script>
 'use strict';
-var FIN_VERSION = 'alpha 0.10';
+var FIN_VERSION = 'alpha 0.11';
 
 /* ================= small tools ================= */
 function esc(s) { return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]; }); }
@@ -575,6 +575,17 @@ function payText(r) { return r.pay === 'cash' ? 'Cash' : 'Bank or mobile money';
 function reqNo(r) { return r.no ? esc(r.no) : 'Not sent yet'; }
 
 /* ================= screens ================= */
+/* the position of a person, shown first at sign in: it stays when the person changes */
+function titleOf(u) {
+  if (u.title) return u.title;
+  if (u.role === 'director') return 'Director'; if (u.role === 'accountant') return 'Accountant';
+  if (u.role === 'viewer') return u.admin ? 'Administrator' : 'Can look';
+  var s = (u.sections || []).map(secName);
+  return s.length ? 'Head: ' + s.slice(0, 2).join(', ') + (s.length > 2 ? ' and ' + (s.length - 2) + ' more' : '') : 'Section head';
+}
+var ROLE_ORDER = { director: 0, accountant: 1, head: 2, viewer: 3 };
+function byPosition(a, b) { var x = ROLE_ORDER[a.role] - ROLE_ORDER[b.role]; if (x) return x; var p = titleOf(a), q = titleOf(b); return p < q ? -1 : p > q ? 1 : a.name < b.name ? -1 : 1; }
+function userLabel(u) { return '<span><span class="b" style="display:block">' + esc(titleOf(u)) + '</span><span class="s m" style="display:block;font-weight:400">' + esc(u.name) + '</span></span>'; }
 function roleText(u) {
   var a = [];
   if (u.role === 'director') a.push('Director'); if (u.role === 'accountant') a.push('Accountant'); if (u.role === 'viewer') a.push('Can look');
@@ -642,18 +653,18 @@ function scrFirst() {
     '<button type="button" class="btn pri big" data-a="firstAdmin">Start</button></div></main>';
 }
 function scrLogin() {
-  var list = S.users.filter(function (u) { return u.active !== false; }).sort(function (a, b) { return a.name < b.name ? -1 : 1; });
+  var list = S.users.filter(function (u) { return u.active !== false; }).sort(byPosition);
   var h = '<main>';
   if (S.ui.msg) h += '<div class="box warn">' + esc(S.ui.msg) + '</div>';
   if (S.ui.pick) {
     var u = S.ui.pick;
-    h += '<h1>Hello ' + esc(u.name) + '</h1><div class="card">' + field('Your PIN', 'lg-pin', input('lg-pin', 'pin', S.ui.form.pin, 'password', 'inputmode="numeric" autocomplete="off"'), S.cfg.mode === 'demo' ? 'Demo PIN: 1111' : '') +
+    h += '<h1>Hello ' + esc(u.name) + '</h1><div class="s m">' + esc(titleOf(u)) + '</div><div class="card">' + field('Your PIN', 'lg-pin', input('lg-pin', 'pin', S.ui.form.pin, 'password', 'inputmode="numeric" autocomplete="off"'), S.cfg.mode === 'demo' ? 'Demo PIN: 1111' : '') +
       (S.ui.err ? '<div class="box err" role="alert">' + esc(S.ui.err) + '</div>' : '') +
       '<button type="button" class="btn pri big" data-a="login">Enter</button><button type="button" class="btn" data-a="back">Back</button></div>';
   } else {
     h += '<h1>Who are you?</h1>';
     if (!list.length) h += '<div class="box warn">The list of people is not on this phone yet. Open the app once with internet.</div>';
-    h += '<div class="list">' + list.map(function (x) { return '<button type="button" class="btn user" data-a="pickUser" data-id="' + esc(x.id) + '"><span>' + esc(x.name) + '</span><span class="s m" style="font-weight:400;text-align:right">' + esc(roleText(x)) + '</span></button>'; }).join('') + '</div>';
+    h += '<div class="list">' + list.map(function (x) { return '<button type="button" class="btn user" data-a="pickUser" data-id="' + esc(x.id) + '">' + userLabel(x) + '</button>'; }).join('') + '</div>';
     if (S.cfg.mode === 'demo' && S.shared) h += '<button type="button" class="btn" data-a="leaveDemo">Leave the demo</button>';
     else h += '<button type="button" class="btn" data-a="forget">Use another link</button>';
     if (S.cfg.mode === 'shared') h += '<button type="button" class="btn" data-a="demo">Try the demo</button><div class="s m">Invented data.</div>';
@@ -1012,7 +1023,7 @@ function scrAll() {
 }
 function scrPeople() {
   var v = V(), h = '<main><div class="row" style="align-items:center"><h1>People</h1><button type="button" class="btn" data-a="tab" data-id="more">Back</button></div><button type="button" class="btn pri" data-a="personNew">Add a person</button><div class="list">';
-  v.users.slice().sort(function (a, b) { return a.name < b.name ? -1 : 1; }).forEach(function (u) { h += '<button type="button" class="btn user" data-a="personEdit" data-id="' + esc(u.id) + '"><span>' + esc(u.name) + (u.active === false ? ' (off)' : '') + '</span><span class="s m" style="font-weight:400;text-align:right">' + esc(roleText(u)) + '</span></button>'; });
+  v.users.slice().sort(byPosition).forEach(function (u) { h += '<button type="button" class="btn user" data-a="personEdit" data-id="' + esc(u.id) + '"><span><span class="b" style="display:block">' + esc(titleOf(u)) + '</span><span class="s m" style="display:block;font-weight:400">' + esc(u.name) + (u.active === false ? ' (off)' : '') + '</span></span><span class="s m" style="font-weight:400;text-align:right">' + esc(roleText(u)) + '</span></button>'; });
   return h + '</div></main>';
 }
 function comWhen(c) { return c.time ? day(finToday(c.time)) + ', ' + new Date(c.time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : ''; }
@@ -1072,7 +1083,7 @@ function modal() {
   }
   if (x.type === 'who') {
     var wq = myQueue().length;
-    h += '<h1>' + esc(S.me.name) + '</h1><div class="s m">' + esc(roleText(S.me)) + '</div>' + (wq ? '<div class="s">' + wq + ' not sent yet. They go when you enter again with internet.</div>' : '') + '<div class="btns"><button type="button" class="btn pri" data-a="signOut">Switch user</button>' + close + '</div>';
+    h += '<h1>' + esc(S.me.name) + '</h1><div class="b">' + esc(titleOf(S.me)) + '</div><div class="s m">' + esc(roleText(S.me)) + '</div>' + (wq ? '<div class="s">' + wq + ' not sent yet. They go when you enter again with internet.</div>' : '') + '<div class="btns"><button type="button" class="btn pri" data-a="signOut">Switch user</button>' + close + '</div>';
   }
   if (x.type === 'plan') {
     var PL = LINE[x.id], pms = m.months || [];
@@ -1123,7 +1134,7 @@ function modal() {
       '<div class="btns"><button type="button" class="btn pri" data-a="dlSave">Save</button>' + close + '</div>' + (x.id ? '<button type="button" class="btn" data-a="dlDel" data-id="' + esc(x.id) + '">Remove this date</button>' : '');
   }
   if (x.type === 'person') {
-    h += '<h1>' + (x.id ? 'Change a person' : 'Add a person') + '</h1>' + mField('Name', 'pe-name', 'name') +
+    h += '<h1>' + (x.id ? 'Change a person' : 'Add a person') + '</h1>' + mField('Position', 'pe-title', 'title', 'text', 'placeholder="Example: Head of Sport"') + mField('Name of the person', 'pe-name', 'name') +
       '<div class="field"><label for="pe-role">Role</label><select class="in" id="pe-role" data-m="role">' + options([['head', 'Section head'], ['director', 'Director'], ['accountant', 'Accountant'], ['viewer', 'Can look']], m.role || 'head') + '</select></div>' +
       '<div class="field"><div class="lab">Sections this person asks for</div><div class="checks">' + FIN_BUDGET.sections.map(function (s) { return '<label><input type="checkbox" data-sec="' + s.code + '"' + ((m.sections || []).indexOf(s.code) >= 0 ? ' checked' : '') + '>' + esc(s.name) + '</label>'; }).join('') + '</div></div>' +
       '<div class="checks"><label><input type="checkbox" data-m="admin"' + (m.admin ? ' checked' : '') + '>Administrator</label><label><input type="checkbox" data-m="active"' + (m.active !== false ? ' checked' : '') + '>Can enter</label></div>' +
@@ -1141,7 +1152,7 @@ function modal() {
   if (x.type === 'comment') {
     h += '<h1>Comment</h1>' + (m.target ? '<div class="s m">About:</div><div class="quote">' + esc(m.target) + '</div>' : '') +
       '<div class="field"><label for="cm-text">Your comment</label><textarea class="in" id="cm-text" data-m="text" rows="4">' + esc(m.text || '') + '</textarea></div>' +
-      (S.cfg.mode === 'demo' ? mField('Your name', 'cm-name', 'name', 'text', 'autocomplete="name"') : '') + err +
+      (S.cfg.mode === 'demo' || !S.me ? mField('Your name', 'cm-name', 'name', 'text', 'autocomplete="name"') : '') + err +
       '<div class="btns"><button type="button" class="btn pri" data-a="comSave">Save the comment</button>' + close + '</div>';
   }
   if (x.type === 'text') { h += '<h1>' + esc(x.title) + '</h1>' + x.html + close; }
@@ -1171,7 +1182,7 @@ function render() {
   S.ui.keepScroll = true;
 }
 /* ================= comments on the app: a button on every screen, also in the demo ================= */
-function comCan() { return !!S.cfg && (!!S.me || (S.cfg.mode === 'demo' && S.ui.screen === 'login')); }
+function comCan() { return !!S.cfg && (!!S.me || S.ui.screen === 'login'); }
 function comButton() {
   if (!comCan()) return '';
   if (S.picking) return '<div class="pickbar"><div><span>Tap the word or the place you want to comment.</span><button type="button" class="btn" data-a="comCancel">Cancel</button></div></div>';
@@ -1194,7 +1205,7 @@ function isPhone() { return /Android|iPhone|iPad|iPod/.test(navigator.userAgent)
 function sendDemoComments() {
   if (!S.shared || !S.demoCom.length || S.comSending) return Promise.resolve(false);
   S.comSending = true;
-  var c = S.demoCom[0], req = { action: 'comment', key: S.shared.key, id: c.id, name: c.name, page: c.page, target: c.target, text: c.text, version: c.version, phone: c.phone };
+  var c = S.demoCom[0], req = { action: 'comment', key: S.shared.key, id: c.id, name: c.name, page: c.page, target: c.target, text: c.text, version: c.version, phone: c.phone, signin: !!c.signin };
   return fetch(S.shared.url, { method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' }, body: JSON.stringify(req), redirect: 'follow' }).then(function (r) { return r.json(); }).then(function (res) {
     S.comSending = false;
     if (res.ok || res.error === 'fields') { S.demoCom = S.demoCom.filter(function (x) { return x.id !== c.id; }); KV.set('demoCom', S.demoCom); return S.demoCom.length ? sendDemoComments() : true; }
@@ -1411,7 +1422,7 @@ function exportSheets() {
     list.forEach(function (r) { var g = rows[r.section] || (rows[r.section] = { code: r.section, n: 0, em: 0, amount: 0, cash: 0, rec: 0 }); g.n++; g.amount += r.amount; if (r.emergency) g.em++; if (r.pay === 'cash') g.cash += r.amount; if (r.status === 'Paid' && !r.receipt) g.rec++; });
     out.push({ name: 'By section ' + m, head: ['Section', 'Requests', 'Emergency', 'Asked (K)', 'Of which cash (K)', 'Paid, receipt missing', 'Budget ' + FIN_BUDGET.year + ' (K)', 'Approved so far (K)', '% of the budget'], rows: Object.keys(rows).map(function (k) { var g = rows[k], s = SEC[k], u = sectionUse(k); return [secName(k), g.n, g.em, g.amount, g.cash, g.rec, s ? s.total : '', u, s ? pct(u, s.total) : '']; }) });
     rq('Requests ' + m, list.sort(byNew));
-  } else if (t === 'people') out.push({ name: 'People', head: ['Name', 'Role', 'Sections', 'Administrator', 'Can enter'], rows: v.users.map(function (u) { return [u.name, { head: 'Section head', director: 'Director', accountant: 'Accountant', viewer: 'Can look' }[u.role], (u.sections || []).map(secName).join(', '), u.admin ? 'Yes' : '', u.active === false ? 'No' : 'Yes']; }) });
+  } else if (t === 'people') out.push({ name: 'People', head: ['Position', 'Name', 'Role', 'Sections', 'Administrator', 'Can enter'], rows: v.users.slice().sort(byPosition).map(function (u) { return [titleOf(u), u.name, { head: 'Section head', director: 'Director', accountant: 'Accountant', viewer: 'Can look' }[u.role], (u.sections || []).map(secName).join(', '), u.admin ? 'Yes' : '', u.active === false ? 'No' : 'Yes']; }) });
   else if (t === 'comments') out.push({ name: f.cDone ? 'Comments done' : 'Open comments', head: ['Time', 'Who', 'From the demo', 'Screen', 'Word or place', 'Comment', 'Version', 'Phone or computer', 'Done', 'Done by', 'Done on'], rows: comList().map(function (c) { return [c.time ? finToday(c.time) + ' ' + new Date(Date.parse(c.time) + FIN_TZ_MINUTES * 60000).toISOString().slice(11, 16) : '', c.byName, c.demo ? 'Demo' : '', c.page, c.target, c.text, c.version, c.phone ? 'Phone' : 'Computer', c.done ? 'Done' : '', c.doneBy, c.doneAt ? finToday(c.doneAt) : '']; }) });
   else if (t === 'budget') {
     var secs = budgetOrder(budgetSections(), function (s) { return s.total; }), lines = [];
@@ -1638,9 +1649,9 @@ var H = {
   allReqs: function () { S.ui.form = {}; go('all'); },
   people: function () { go('people'); },
   personNew: function () { openModal({ type: 'person', id: '' }, { role: 'head', sections: [], active: true }); },
-  personEdit: function (el) { var u = finFind(V().users, el.dataset.id); if (!u) return; openModal({ type: 'person', id: u.id }, { name: u.name, role: u.role, sections: (u.sections || []).slice(), admin: u.admin, active: u.active !== false, pin: '' }); },
+  personEdit: function (el) { var u = finFind(V().users, el.dataset.id); if (!u) return; openModal({ type: 'person', id: u.id }, { name: u.name, title: u.title || '', role: u.role, sections: (u.sections || []).slice(), admin: u.admin, active: u.active !== false, pin: '' }); },
   personSave: function () {
-    var m = S.ui.m, x = S.ui.modal, d = { id: x.id || uid(), name: m.name, role: m.role || 'head', sections: m.sections || [], admin: !!m.admin, active: m.active !== false };
+    var m = S.ui.m, x = S.ui.modal, d = { id: x.id || uid(), name: m.name, title: String(m.title || '').trim(), role: m.role || 'head', sections: m.sections || [], admin: !!m.admin, active: m.active !== false };
     if (!String(m.name || '').trim()) { S.ui.merr = 'Write the name.'; return render(); }
     if (!x.id && !pinOk(m.pin)) { S.ui.merr = 'The PIN must be 4 to 8 numbers.'; return render(); }
     if (m.pin && !pinOk(m.pin)) { S.ui.merr = 'The PIN must be 4 to 8 numbers.'; return render(); }
@@ -1665,7 +1676,7 @@ var H = {
   comStart: function () { S.picking = true; render(); },
   comCancel: function () { S.picking = false; render(); },
   comSave: function () {
-    var m = S.ui.m, text = String(m.text || '').trim(), demo = S.cfg.mode === 'demo', name = String(m.name || '').trim();
+    var m = S.ui.m, text = String(m.text || '').trim(), demo = S.cfg.mode === 'demo' || !S.me, name = String(m.name || '').trim();
     if (!text) { S.ui.merr = ERR.comment; return render(); }
     if (demo && !name) { S.ui.merr = 'Write your name, so we know who to thank.'; return render(); }
     var c = { id: uid(), page: m.page || '', target: m.target || '', text: text.slice(0, 600), version: FIN_VERSION, phone: isPhone() };
@@ -1673,7 +1684,7 @@ var H = {
     var back = S.ui.modal.back; S.ui.modal = back ? back.modal : null; S.ui.m = back ? back.m : {}; S.ui.merr = '';
     if (!demo) { S.thanks = 'Comment saved. Thank you.'; return render(); }
     S.comName = name; KV.set('comName', name);
-    c.name = name; S.demoCom.push(c); KV.set('demoCom', S.demoCom);
+    c.name = name; c.signin = S.cfg.mode !== 'demo'; S.demoCom.push(c); KV.set('demoCom', S.demoCom);
     if (!S.shared) { S.thanks = 'Comment kept on this phone. It is sent when this phone opens the link for the staff.'; return render(); }
     render();
     sendDemoComments().then(function (ok) { S.thanks = ok ? 'Comment sent. Thank you.' : (navigator.onLine === false ? 'No internet: ' : 'It could not be sent now: ') + 'the comment is kept on this phone and is sent later.'; render(); });
