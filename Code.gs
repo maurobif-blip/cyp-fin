@@ -42,7 +42,7 @@ function finAddMonth(s) {
 
 /* ---- people ---- */
 function finPublicUser(u) {
-  return { id: u.id, name: u.name, role: u.role, sections: u.sections || [], admin: !!u.admin, active: u.active !== false, salt: u.salt, rev: u.rev || 0 };
+  return { id: u.id, name: u.name, title: u.title || '', role: u.role, sections: u.sections || [], admin: !!u.admin, active: u.active !== false, salt: u.salt, rev: u.rev || 0 };
 }
 function finFind(list, id) { for (var i = 0; i < list.length; i++) if (list[i].id === id) return list[i]; return null; }
 function finHasSection(u, code) { return (u.sections || []).indexOf(code) >= 0; }
@@ -249,7 +249,7 @@ function finApply(db, u, op, nowIso, store, info) {
       var others = 0; for (var i = 0; i < db.users.length; i++) if (db.users[i] !== x && db.users[i].admin && db.users[i].active !== false) others++;
       if (!others) return fail('last_admin');
     }
-    x.name = nm; x.role = d.role; x.sections = (d.sections || []).map(String); x.admin = !!d.admin; x.active = d.active !== false;
+    x.name = nm; x.title = finText(d.title, 40); x.role = d.role; x.sections = (d.sections || []).map(String); x.admin = !!d.admin; x.active = d.active !== false;
     if (d.salt && d.cred) { x.salt = String(d.salt); x.cred = String(d.cred); x.fails = 0; x.lockUntil = ''; }
     bump(x); audit('Person saved', nm + ' (' + x.role + ')');
     return { ok: true };
@@ -407,9 +407,9 @@ function finHandle(req, store) {
     if (!req.id || !who || !finText(req.text)) return { ok: false, error: 'fields' };
     if (finFind(db.comments, req.id)) return { ok: true, again: true };
     if (db.comments.length >= 3000) return { ok: false, error: 'full' };
-    var cm = finCommentRec(req, now, '', who, true);
+    var cm = finCommentRec(req, now, '', who, !req.signin);      /* from the demo, or from the first screen before signing in */
     db.rev++; cm.rev = db.rev; db.comments.push(cm);
-    store.save(db, { requests: [], comments: [cm], audit: [{ time: now, user: who + ' (demo)', action: 'Comment on the app', no: '', detail: cm.page + ': ' + cm.text.slice(0, 80) }] });
+    store.save(db, { requests: [], comments: [cm], audit: [{ time: now, user: who + (req.signin ? ' (not signed in)' : ' (demo)'), action: 'Comment on the app', no: '', detail: cm.page + ': ' + cm.text.slice(0, 80) }] });
     return { ok: true };
   }
 
