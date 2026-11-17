@@ -68,6 +68,13 @@ function finItems(list) {
   }
   return { items: out, sum: Math.round(sum * 100) / 100 };
 }
+/* a food request: for how many people, how much, at which price, and what is still in the store */
+function finFood(x) {
+  if (!x) return null;
+  var p = Math.round(Number(x.people)), q = Number(x.qty), pr = Number(x.price), st = x.stock === '' || x.stock == null ? -1 : Number(x.stock);
+  if (!(p >= 1 && p <= 100000) || !(q > 0 && q <= 1000000) || !(pr > 0 && pr <= 100000000) || !(st >= 0 && st <= 1000000)) return false;
+  return { people: p, qty: Math.round(q * 100) / 100, unit: finText(x.unit, 12) || 'kg', price: Math.round(pr * 100) / 100, stock: Math.round(st * 100) / 100 };
+}
 function finMonthlySecs(s) { return s.monthly || ['SCH', 'FAM']; }
 function finText(x, max) { return String(x == null ? '' : x).replace(/\s+/g, ' ').trim().slice(0, max || 200); }
 
@@ -99,6 +106,9 @@ function finApply(db, u, op, nowIso, store, info) {
       bundle = finItems(d.items); if (!bundle) return fail('amount');
       amount = bundle.sum; d.line = 'monthly'; d.lineName = bundle.items.length + (bundle.items.length === 1 ? ' budget line' : ' budget lines');
     }
+    var food = bundle ? null : finFood(d.food);
+    if (food === false) return fail('food');
+    if (food) amount = Math.round(food.qty * food.price * 100) / 100;
     if (!what) return fail('what');
     if (!(amount > 0) || amount > 100000000) return fail('amount');
     if (!d.line) return fail('line');
@@ -115,7 +125,7 @@ function finApply(db, u, op, nowIso, store, info) {
       line: String(d.line), lineName: finText(d.lineName, 120), prio: d.prio, needed: d.needed, pay: d.pay === 'cash' ? 'cash' : 'bank',
       created: created, received: nowIso, notice: notice, emergency: emergency, reason: emergency ? finText(d.reason, 60) : '', why: emergency ? finText(d.why, 200) : '',
       by: u.id, byName: u.name, status: 'Waiting', decidedBy: '', decidedAt: '', note: '', week: '', paidBy: '', paidAt: '',
-      receipt: false, receiptBy: '', receiptAt: '', quoteFile: saveFile(d.photo, 'quotation-' + d.id), receiptFile: '', deadline: d.deadline ? String(d.deadline) : '', plan: planKey, month: month, items: bundle ? bundle.items : null };
+      receipt: false, receiptBy: '', receiptAt: '', quoteFile: saveFile(d.photo, 'quotation-' + d.id), receiptFile: '', deadline: d.deadline ? String(d.deadline) : '', plan: planKey, month: month, items: bundle ? bundle.items : null, food: food || null };
     db.requests.push(r);
     touched(r, 'New request', what + ' K' + r.amount + (emergency ? ' EMERGENCY' : ''));
     if (r.deadline) {
@@ -172,12 +182,23 @@ function finApply(db, u, op, nowIso, store, info) {
     s.plan[ln] = { months: ms.sort(function (a, b) { return a - b; }), when: q.when, times: tm, amount: Math.round(am * 100) / 100, prio: q.prio };
     /* fixed: paid by the management, the section does not ask for it */
     if (q.fixed != null) s.plan[ln].fixed = !!q.fixed;
+    /* food: the request says people, quantity, price and what is left in the store */
+    if (q.food != null) s.plan[ln].food = !!q.food;
     bump(s); audit('Spending plan', ln + ': ' + ms.length + ' months, ' + q.when + ', ' + tm + ' x K' + s.plan[ln].amount);
     return { ok: true };
   }
   if (t === 'week_money') {
     if (u.role !== 'accountant' && u.role !== 'director' && !u.admin) return fail('role');
     /* two numbers for each week: the money expected, and the money received with its date */
+    /* the money comes in the first, the second and the last week of the month: an indicative amount for each */
+    if (d.kind === 'indicative') {
+      if (['w1', 'w2', 'last'].indexOf(d.slot) < 0) return fail('fields');
+      if (!s.tranche) s.tranche = {};
+      if (d.amount === null || d.amount === '') delete s.tranche[d.slot];
+      else { var ia = Number(d.amount); if (!(ia >= 0) || ia > 1000000000) return fail('fields'); s.tranche[d.slot] = ia; }
+      bump(s); audit('Indicative money', d.slot + ' ' + (s.tranche[d.slot] != null ? 'K' + s.tranche[d.slot] : 'removed'));
+      return { ok: true };
+    }
     if (!finIsDate(d.week)) return fail('fields');
     var wk = finWeekKey(d.week), kind = d.kind === 'expected' ? 'expected' : 'received';
     if (!s.weeksExp) s.weeksExp = {};
@@ -268,6 +289,9 @@ function finApply(db, u, op, nowIso, store, info) {
     if (r.status !== 'To revise') return fail('status');
     var what2 = finText(d.what, 160), amount2 = Number(d.amount), bundle2 = null;
     if (r.items) { bundle2 = finItems(d.items); if (!bundle2) return fail('amount'); amount2 = bundle2.sum; d.line = 'monthly'; d.lineName = bundle2.items.length + (bundle2.items.length === 1 ? ' budget line' : ' budget lines'); }
+    var food2 = r.items ? null : finFood(d.food);
+    if (food2 === false) return fail('food');
+    if (food2) amount2 = Math.round(food2.qty * food2.price * 100) / 100;
     if (!what2) return fail('what');
     if (!(amount2 > 0) || amount2 > 100000000) return fail('amount');
     if (!d.line) return fail('line');
@@ -277,6 +301,7 @@ function finApply(db, u, op, nowIso, store, info) {
     var reason2 = finText(d.reason, 60) || r.reason, why2 = finText(d.why, 200) || r.why;
     if (em2 && (!reason2 || !why2)) return fail('reason');
     if (bundle2) r.items = bundle2.items;
+    r.food = food2 || null;
     r.what = what2; r.amount = Math.round(amount2 * 100) / 100; r.line = String(d.line); r.lineName = finText(d.lineName, 120); r.prio = d.prio; r.needed = d.needed;
     r.pay = d.pay === 'cash' ? 'cash' : 'bank'; r.notice = notice2; r.emergency = em2; r.reason = em2 ? reason2 : ''; r.why = em2 ? why2 : '';
     var q2 = saveFile(d.photo, 'quotation-' + r.id + '-' + ((r.revised || 0) + 1)); if (q2) r.quoteFile = q2;
@@ -303,16 +328,19 @@ function finApply(db, u, op, nowIso, store, info) {
   if (t === 'unpay') {
     if (u.role !== 'accountant') return fail('role');
     if (r.status !== 'Paid') return fail('status');
-    r.status = 'Approved'; r.paidBy = ''; r.paidAt = ''; r.receipt = false; r.receiptBy = ''; r.receiptAt = '';
+    r.status = 'Approved'; r.paidBy = ''; r.paidAt = ''; r.receipt = false; r.receiptBy = ''; r.receiptAt = ''; r.spent = null;
     touched(r, 'Payment undone', '');
     return { ok: true };
   }
   if (t === 'receipt') {
     if (u.role !== 'accountant' && r.by !== u.id && !finHasSection(u, r.section)) return fail('role');
     if (r.status !== 'Paid') return fail('status');
-    r.receipt = true; r.receiptBy = u.name; r.receiptAt = nowIso;
+    /* how much of the money was really spent: what is not spent comes back */
+    var sp = d.spent === '' || d.spent == null ? null : Number(d.spent);
+    if (sp !== null && (!(sp >= 0) || sp > 100000000)) return fail('amount');
+    r.receipt = true; r.receiptBy = u.name; r.receiptAt = nowIso; r.spent = sp === null ? null : Math.round(sp * 100) / 100;
     x = saveFile(d.photo, 'receipt-' + r.id); if (x) r.receiptFile = x;
-    touched(r, 'Receipt added', '');
+    touched(r, 'Receipt added', r.spent != null ? 'spent K' + r.spent : '');
     return { ok: true };
   }
   if (t === 'quote_add') {
@@ -409,7 +437,7 @@ function finHandle(req, store) {
    Write the web app URL in WEB_APP_URL (near the end of this file) and run "link": the link for the staff appears in the sheet "link". */
 var SHEET_ID = ''; /* leave empty when the script is opened from inside the Sheet */
 var DB_FILE = 'cyp-fin-database.json';
-var REQ_HEAD = ['No', 'Sent', 'Section', 'What', 'Amount (K)', 'Budget line', 'Line name', 'Priority', 'Needed', 'Notice (working days)', 'Emergency', 'Reason', 'Pay by', 'Status', 'Asked by', 'Decided by', 'Decided at', 'Note', 'Paid by', 'Paid at', 'Receipt', 'Quotation photo', 'Receipt photo', 'Id', 'Will be paid on', 'Sent again'];
+var REQ_HEAD = ['No', 'Sent', 'Section', 'What', 'Amount (K)', 'Budget line', 'Line name', 'Priority', 'Needed', 'Notice (working days)', 'Emergency', 'Reason', 'Pay by', 'Status', 'Asked by', 'Decided by', 'Decided at', 'Note', 'Paid by', 'Paid at', 'Receipt', 'Quotation photo', 'Receipt photo', 'Id', 'Will be paid on', 'Sent again', 'People', 'Quantity', 'Price per unit (K)', 'Left in the store', 'Spent (K)'];
 var LOG_HEAD = ['Time', 'Who', 'Action', 'Request', 'Detail'];
 var COM_HEAD = ['Time', 'Who', 'From the demo', 'Screen', 'Word or place', 'Comment', 'Version', 'Phone', 'Done', 'Done by', 'Id'];
 var BOOK_ = null;
@@ -437,7 +465,7 @@ function mirror_(list) {
     var r = list[i], row = 0, last = sh.getLastRow();
     if (last > 1) { var hit = sh.getRange(2, idCol, last - 1, 1).createTextFinder(r.id).matchEntireCell(true).findNext(); if (hit) row = hit.getRow(); }
     if (!row) row = last + 1;
-    sh.getRange(row, 1, 1, REQ_HEAD.length).setValues([[r.no, r.created, r.section, r.what, r.amount, r.line, r.lineName, r.prio, r.needed, r.notice, r.emergency ? 'EMERGENCY' : '', r.emergency ? r.reason + ': ' + r.why : '', r.pay === 'cash' ? 'Cash' : 'Bank or mobile money', r.status, r.byName, r.decidedBy, when_(r.decidedAt), r.note, r.paidBy, when_(r.paidAt), r.receipt ? 'Yes' : (r.status === 'Paid' ? 'MISSING' : ''), fileLink_(r.quoteFile), fileLink_(r.receiptFile), r.id, r.payOn || '', r.revised ? r.revised + (r.revised === 1 ? ' time' : ' times') : '']]);
+    sh.getRange(row, 1, 1, REQ_HEAD.length).setValues([[r.no, r.created, r.section, r.what, r.amount, r.line, r.lineName, r.prio, r.needed, r.notice, r.emergency ? 'EMERGENCY' : '', r.emergency ? r.reason + ': ' + r.why : '', r.pay === 'cash' ? 'Cash' : 'Bank or mobile money', r.status, r.byName, r.decidedBy, when_(r.decidedAt), r.note, r.paidBy, when_(r.paidAt), r.receipt ? 'Yes' : (r.status === 'Paid' ? 'MISSING' : ''), fileLink_(r.quoteFile), fileLink_(r.receiptFile), r.id, r.payOn || '', r.revised ? r.revised + (r.revised === 1 ? ' time' : ' times') : '', r.food ? r.food.people : '', r.food ? r.food.qty + ' ' + r.food.unit : '', r.food ? r.food.price : '', r.food ? r.food.stock + ' ' + r.food.unit : '', r.spent != null ? r.spent : '']]);
   }
 }
 function comments_(list) {
