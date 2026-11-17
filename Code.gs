@@ -143,7 +143,7 @@ function finApply(db, u, op, nowIso, store, info) {
     r = { id: String(d.id), no: 'R' + ('000' + db.seq).slice(-4), section: String(d.section), what: what, amount: Math.round(amount * 100) / 100,
       line: String(d.line), lineName: finText(d.lineName, 120), prio: d.prio, needed: d.needed, pay: d.pay === 'cash' ? 'cash' : 'bank',
       created: created, received: nowIso, notice: notice, emergency: emergency, reason: emergency ? finText(d.reason, 60) : '', why: emergency ? finText(d.why, 200) : '',
-      by: u.id, byName: u.name, status: 'Waiting', decidedBy: '', decidedAt: '', note: '', week: '', paidBy: '', paidAt: '',
+      by: u.id, byName: u.name, byRole: u.role, status: 'Waiting', decidedBy: '', decidedAt: '', note: '', week: '', paidBy: '', paidAt: '',
       receipt: false, receiptBy: '', receiptAt: '', quoteFile: saveFile(d.photo, 'quotation-' + d.id), receiptFile: '', deadline: d.deadline ? String(d.deadline) : '', plan: planKey, month: month, items: bundle ? bundle.items : null, food: food || null, parts: bundle ? null : finParts(d.parts, Math.round(amount * 100) / 100) };
     db.requests.push(r);
     touched(r, 'New request', what + ' K' + r.amount + (emergency ? ' EMERGENCY' : ''));
@@ -193,17 +193,39 @@ function finApply(db, u, op, nowIso, store, info) {
       return { ok: true };
     }
     var ln = finText(d.line, 20); if (!ln) return fail('fields');
-    if (d.rule === null) { delete s.plan[ln]; bump(s); audit('Spending plan', ln + ' back to the budget rule'); return { ok: true }; }
+    /* the Accountant prepares the plan, the Director confirms it: a change by the Accountant waits in planDraft */
+    var prop = u.role === 'accountant' && !u.admin;
+    if (!s.planDraft) s.planDraft = {};
+    if (d.rule === null) {
+      if (prop) { s.planDraft[ln] = { reset: true, by: u.name, at: nowIso }; bump(s); audit('Spending plan', ln + ': proposed, back to the budget rule'); return { ok: true }; }
+      delete s.plan[ln]; delete s.planDraft[ln]; bump(s); audit('Spending plan', ln + ' back to the budget rule'); return { ok: true };
+    }
     var q = d.rule || {}, ms = [], k;
     for (k = 0; k < (q.months || []).length; k++) { var mo = Math.round(Number(q.months[k])); if (!(mo >= 1 && mo <= 12)) return fail('fields'); if (ms.indexOf(mo) < 0) ms.push(mo); }
     var tm = Math.round(Number(q.times)), am = Number(q.amount);
     if (['w1', 'w2', 'w3', 'w4', 'spread'].indexOf(q.when) < 0 || !(tm >= 1 && tm <= 8) || !(am >= 0) || am > 100000000 || ['P1', 'P2', 'P3'].indexOf(q.prio) < 0) return fail('fields');
-    s.plan[ln] = { months: ms.sort(function (a, b) { return a - b; }), when: q.when, times: tm, amount: Math.round(am * 100) / 100, prio: q.prio };
+    var nr = { months: ms.sort(function (a, b) { return a - b; }), when: q.when, times: tm, amount: Math.round(am * 100) / 100, prio: q.prio };
     /* fixed: paid by the management, the section does not ask for it */
-    if (q.fixed != null) s.plan[ln].fixed = !!q.fixed;
+    if (q.fixed != null) nr.fixed = !!q.fixed;
     /* food: the request says people, quantity, price and what is left in the store */
-    if (q.food != null) s.plan[ln].food = !!q.food;
+    if (q.food != null) nr.food = !!q.food;
+    if (prop) { nr.by = u.name; nr.at = nowIso; s.planDraft[ln] = nr; bump(s); audit('Spending plan', ln + ': proposed, ' + ms.length + ' months, ' + q.when + ', ' + tm + ' x K' + nr.amount); return { ok: true }; }
+    s.plan[ln] = nr; delete s.planDraft[ln];
     bump(s); audit('Spending plan', ln + ': ' + ms.length + ' months, ' + q.when + ', ' + tm + ' x K' + s.plan[ln].amount);
+    return { ok: true };
+  }
+  /* the Director confirms or refuses a change proposed by the Accountant; the Accountant can take a proposal back */
+  if (t === 'plan_decide') {
+    var yes = !!d.ok;
+    if (yes ? (u.role !== 'director' && !u.admin) : (u.role !== 'director' && u.role !== 'accountant' && !u.admin)) return fail('role');
+    var pl = finText(d.line, 20), dr = s.planDraft && s.planDraft[pl];
+    if (!dr) return { ok: true };
+    if (!s.plan) s.plan = {};
+    if (yes) {
+      if (dr.reset) delete s.plan[pl];
+      else { s.plan[pl] = { months: dr.months, when: dr.when, times: dr.times, amount: dr.amount, prio: dr.prio }; if (dr.fixed != null) s.plan[pl].fixed = !!dr.fixed; if (dr.food != null) s.plan[pl].food = !!dr.food; }
+    }
+    delete s.planDraft[pl]; bump(s); audit('Spending plan', pl + ': change ' + (yes ? 'confirmed' : 'not confirmed'));
     return { ok: true };
   }
   if (t === 'week_money') {
