@@ -105,6 +105,12 @@ img.photo{max-width:100%;border-radius:8px;border:1px solid var(--line)}
 .prow .btn{min-height:40px;flex:0 0 auto}
 .srow{display:flex;justify-content:space-between;align-items:center;gap:8px;width:100%;background:none;border:0;border-top:1px solid var(--line);padding:8px 0;min-height:44px;font:inherit;color:var(--ink);text-align:left;cursor:pointer}
 .srow .n{font-weight:700;color:var(--blue);text-decoration:underline}
+.srow.sbox{background:#fff;border:1px solid var(--line);border-radius:12px;padding:10px 14px;margin-bottom:10px}
+.viewer{position:fixed;inset:0;z-index:40;background:#111;display:flex;flex-direction:column}
+.viewer .vbar{display:flex;gap:8px;padding:10px;background:var(--ground)}
+.viewer .vbar .btn{flex:1}
+.viewer .vscroll{flex:1;overflow:auto;-webkit-overflow-scrolling:touch}
+.viewer img{display:block;max-width:none;height:auto}
 .mrow{display:flex;align-items:center;gap:8px;border-top:1px solid var(--line);padding:8px 0}
 .mrow .nm{flex:1 1 auto;min-width:0;overflow-wrap:anywhere}
 .mrow .in{flex:0 0 104px;width:104px;text-align:right}
@@ -124,7 +130,7 @@ img.photo{max-width:100%;border-radius:8px;border:1px solid var(--line)}
 <script src="core.js"></script>
 <script>
 'use strict';
-var FIN_VERSION = 'alpha 0.8';
+var FIN_VERSION = 'alpha 0.9';
 
 /* ================= small tools ================= */
 function esc(s) { return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]; }); }
@@ -414,6 +420,14 @@ function lineFixed(L) { return !!planRule(L).fixed; }
 var FOOD_NO = /dish wash|jik|domestos|charcoal|uniform|equipment/i;
 function foodDefault(L) { return (L.sec === 'CAN' && !FOOD_NO.test(L.name)) || /^groceries$/i.test(L.name); }
 function lineFood(L) { return !!L && !!planRule(L).food; }
+/* the form opened from one budget line: it asks the amount for a month */
+function isItemForm() { var f = S.ui.form; return !!f.month && !f.editId && !!LINE[f.line]; }
+function formMonth(prev) {
+  var f = S.ui.form, L = LINE[f.line]; if (!L) return;
+  var g = monthLine(L.sec, L.id, f.month), amt = g ? g.open : 0;
+  if (!f.amount || Number(f.amount) === Number(f.planAmt)) f.amount = amt ? String(amt) : '';
+  f.what = L.name + ', ' + ymText(f.month); f.planAmt = amt; f.needed = g && g.first ? g.first : f.month + '-01'; f.plan = L.id + '|' + f.month + '|m'; f.cMonth = f.month;
+}
 function isFoodForm() { var f = S.ui.form; return !!f.line && lineFood(LINE[f.line]); }
 function foodSync() {
   var f = S.ui.form; if (!isFoodForm()) return;
@@ -477,7 +491,7 @@ function planItems(from, to) {
       planDays(r).forEach(function (dd, k) {
         var date = ym + '-' + ('0' + dd).slice(-2), id = L.id + '|' + ym + '|' + k;
         if (date < from || date > to || date < cf) return;
-        out.push({ key: id, line: L.id, sec: code, name: L.name, date: date, amount: r.amount, prio: r.prio, fixed: !!r.fixed, req: v._asked[id] || null });
+        out.push({ key: id, line: L.id, sec: code, name: L.name, date: date, amount: r.amount, prio: r.prio, fixed: !!r.fixed, req: v._asked[id] || v._asked[L.id + '|' + ym + '|m'] || null });
       });
     }); });
     ym = nextYm(ym);
@@ -485,6 +499,23 @@ function planItems(from, to) {
   out.sort(function (a, b) { return a.date < b.date ? -1 : a.date > b.date ? 1 : order.indexOf(a.sec) - order.indexOf(b.sec); });
   return (memo[mk] = out);
 }
+/* what a section asks in one month: one row for each budget line of the plan */
+function monthPlan(code, ym) {
+  var map = {}, out = [];
+  planItems(ym + '-01', ym + '-31').forEach(function (x) {
+    if (x.sec !== code || x.fixed) return;
+    var g = map[x.line];
+    if (!g) { g = map[x.line] = { line: x.line, sec: code, name: x.name, ym: ym, n: 0, each: x.amount, total: 0, open: 0, first: '', reqs: [], prio: x.prio }; out.push(g); }
+    g.n++; g.total = Math.round((g.total + x.amount) * 100) / 100;
+    if (x.req) { if (g.reqs.indexOf(x.req) < 0) g.reqs.push(x.req); } else { g.open = Math.round((g.open + x.amount) * 100) / 100; if (!g.first) g.first = x.date; }
+  });
+  out.forEach(function (g) { g.asked = sumOf(g.reqs); });
+  return out;
+}
+function monthLine(code, line, ym) { var l = monthPlan(code, ym); for (var i = 0; i < l.length; i++) if (l[i].line === line) return l[i]; return null; }
+/* the months a section can ask for: this month and the three after, never before the budget starts */
+function askMonths() { var a = today().slice(0, 7), cf = V().settings.countFrom.slice(0, 7), ym = a < cf ? cf : a, out = []; for (var i = 0; i < 4; i++) { out.push(ym); ym = nextYm(ym); } return out; }
+function repeatText(g) { var r = planRule(LINE[g.line]); return r.months.length === 12 ? 'Every month' : r.months.length === 1 ? 'Once in the year' : 'In ' + r.months.map(function (m) { return MO[m - 1]; }).join(', '); }
 /* the monthly request of a section: the planned lines of that month, one amount for each line */
 function monthlyLines(code, ym) {
   var map = {}, out = [];
@@ -566,7 +597,7 @@ function head() {
 }
 function nav() {
   var n = { decide: weekWaiting().length, pay: 0, rec: 0, dead: 0, mine: 0 }, v = V();
-  v.requests.forEach(function (r) { if (r.status === 'Approved') n.pay++; if (r.status === 'Paid' && !r.receipt) n.rec++; if (r.status === 'To revise' && (r.by === S.me.id || S.me.sections.indexOf(r.section) >= 0)) n.mine++; });
+  v.requests.forEach(function (r) { if (r.status === 'Approved') n.pay++; if (r.status === 'Paid' && !r.receipt) n.rec++; if (S.me.role === 'head' && (r.status === 'To revise' || (r.status === 'Paid' && !r.receipt)) && (r.by === S.me.id || S.me.sections.indexOf(r.section) >= 0) && !notMine(r)) n.mine++; });
   var iconOf = { over: 'over', soon: 'soon', 'new': 'new', mine: 'mine', decide: 'decide', dead: 'dead', month: 'month', pay: 'pay', rec: 'rec', more: 'more' };
   return '<nav><div>' + tabsFor().map(function (t) { return '<button type="button" class="' + (S.ui.tab === t[0] ? 'on' : '') + '" data-a="tab" data-id="' + t[0] + '">' + ic(iconOf[t[0]]) + '<span>' + t[1] + (n[t[0]] ? ' (' + n[t[0]] + ')' : '') + '</span></button>'; }).join('') + '</div></nav>';
 }
@@ -630,7 +661,7 @@ function reqCard(r, opt) {
     h += '<div class="s b ' + (r.quoteFile ? 'm' : 'bad') + '">' + (r.quoteFile ? 'Quotation attached' : 'No quotation') + '</div>';
     h += r.items ? '<div class="s">' + r.items.map(function (it) { return esc(LINE[it.line] ? LINE[it.line].name : it.lineName || it.line) + ' ' + money(it.amount); }).join(' · ') + '</div>' : lineBox(r.line, r.amount, r.status === 'Waiting' || r.status === 'Next week', r.needed);
   } else h += '<div class="s">' + esc(r.lineName || (r.line === 'none' ? 'Not in the budget' : r.line)) + '</div>';
-  if (!opt.nopill) h += '<div class="wrap">' + pill(r) + (r.emergency && !opt.band ? '<span class="pill em">Emergency</span>' : '') + (r.status === 'Paid' && !r.receipt ? '<span class="pill warn">Receipt missing</span>' : '') + (r.pending ? '<span class="pill warn">Not sent yet</span>' : '') + '</div>';
+  if (!opt.nopill) h += '<div class="wrap">' + pill(r) + (r.emergency && !opt.band ? '<span class="pill em">Emergency</span>' : '') + (r.status === 'Paid' && !r.receipt ? '<span class="pill warn">Receipt missing</span>' : '') + (r.status === 'Paid' && r.receipt ? '<span class="pill ok">' + (r.receiptFile ? 'Receipt with photo' : 'Receipt added') + '</span>' : '') + (r.pending ? '<span class="pill warn">Not sent yet</span>' : '') + '</div>';
   if (r.note && (r.status === 'Not approved' || r.status === 'Next week')) h += '<div class="s">Director: ' + esc(r.note) + '</div>';
   if (r.status === 'To revise') h += '<div class="ask">The Director asks to change: ' + esc(r.note) + '</div>';
   if (r.status === 'Waiting' && r.revised) h += '<div class="s m">Sent again after revision' + (r.askedNote ? '. The Director had asked: ' + esc(r.askedNote) : '') + '</div>';
@@ -640,28 +671,40 @@ function reqCard(r, opt) {
 
 function askLine(date) { var v = V(), t = today(), by = finAskBy(date, v.settings.noticeDays); return '<div class="b' + (by <= t ? ' bad' : '') + '">' + (by < t ? 'Late. You had to ask by ' + day(by) + '.' : by === t ? 'Ask today.' : 'Ask by ' + day(by) + '.') + '</div>'; }
 function scrSoon() {
-  var v = V(), t = today(), mon = monthlySecs(), multi = S.me.sections.length > 1, canDl = finCanDeadline(S.me, ''), any = false;
+  var v = V(), f = S.ui.form, mon = monthlySecs(), secs = S.me.sections.filter(function (c) { return !!SEC[c]; }), multi = secs.length > 1, canDl = finCanDeadline(S.me, ''), months = askMonths();
   var mine = v.deadlines.filter(function (x) { return !x.deleted && !x.asked && S.me.sections.indexOf(x.section) >= 0; }).map(function (x) { x.v = deadlineView(x); return x; }).sort(function (a, b) { return a.v.askBy < b.v.askBy ? -1 : 1; });
-  var planned = planItems(finAddDays(t, -14), finAddDays(t, 35)).filter(function (x) { return !x.req && !x.fixed && S.me.sections.indexOf(x.sec) >= 0 && mon.indexOf(x.sec) < 0; });
-  var h = '<main><h1>Coming up</h1>';
-  S.me.sections.forEach(function (c) {
-    if (mon.indexOf(c) < 0) return;
-    monthlyMonths(c).forEach(function (m) {
-      any = true;
-      h += '<div class="card">' + (multi ? '<div class="sec">' + esc(secName(c)) + '</div>' : '') + '<div class="row"><div class="b">Monthly request, ' + ymText(m.ym) + '</div><div class="b num">' + money(m.req ? m.req.amount : m.total) + '</div></div>' +
-        (m.req ? '<div class="wrap">' + pill(m.req) + '</div>' : '<div class="s">' + plural(m.lines.length, 'budget line', 'budget lines') + '</div>' + askLine(m.ym + '-01') + '<button type="button" class="btn pri" data-a="monthlyOpen" data-id="' + esc(c + '|' + m.ym) + '">Prepare the request</button>') + '</div>';
-    });
+  function data(ym) { return secs.map(function (c) { var bundle = mon.indexOf(c) >= 0, o = { code: c, bundle: bundle, lines: bundle ? [] : monthPlan(c, ym), req: bundle ? monthlyReq(c, ym) : null, mlines: bundle ? monthlyLines(c, ym) : [] }; o.todo = bundle ? (o.mlines.length && !o.req ? 1 : 0) : o.lines.filter(function (g) { return g.open > 0; }).length; o.any = bundle ? !!(o.mlines.length || o.req) : o.lines.length > 0; return o; }); }
+  if (months.indexOf(f.cMonth) < 0) { f.cMonth = months[0]; for (var i = 0; i < months.length; i++) if (data(months[i]).some(function (o) { return o.todo; })) { f.cMonth = months[i]; break; } }
+  var ym = f.cMonth, list = data(ym), mName = MOL[Number(ym.slice(5)) - 1], todo = list.reduce(function (n, o) { return n + o.todo; }, 0);
+  var h = '<main><h1>Coming up</h1>' + field('Month', 'cu-month', '<select class="in" id="cu-month" data-f="cMonth" data-r="1">' + options(months.map(function (m) { return [m, ymText(m)]; }), ym) + '</select>');
+  var first = '';
+  list.forEach(function (o) { o.lines.forEach(function (g) { if (g.open && (!first || g.first < first)) first = g.first; }); if (o.bundle && o.todo && (!first || ym + '-01' < first)) first = ym + '-01'; });
+  h += '<div class="b m" id="cu-count">' + (todo ? plural(todo, 'request', 'requests') + ' to send for ' + mName : 'Nothing to ask for ' + mName + '.') + '</div>' + (first ? askLine(first) : '');
+  function lineCard(g) {
+    var done = !g.open, r0 = g.reqs[0];
+    return '<div class="card"><div class="row"><div class="b">' + esc(g.name) + '</div><div class="b num">' + money(done ? g.asked : g.total) + '</div></div>' +
+      '<div class="row" style="align-items:center;flex-wrap:wrap"><div class="s">' + esc(repeatText(g)) + (!done && g.reqs.length ? ' · asked so far ' + money(g.asked) : '') + '</div>' +
+      (done ? pill(r0) : '<button type="button" class="btn pri" style="flex:0 0 auto;width:auto" data-a="askMonth" data-id="' + esc(g.line + '|' + ym) + '">Ask for ' + mName + '</button>') + '</div>' + (!done && g.first !== first ? askLine(g.first) : '') + '</div>';
+  }
+  function bundleCard(o) {
+    var total = o.mlines.reduce(function (n, x) { return n + x.amount; }, 0);
+    return '<div class="card"><div class="row"><div class="b">Monthly request, ' + ymText(ym) + '</div><div class="b num">' + money(o.req ? o.req.amount : total) + '</div></div>' +
+      (o.req ? '<div class="wrap">' + pill(o.req) + '</div>' : '<div class="s">' + plural(o.mlines.length, 'budget line', 'budget lines') + ' in one request</div>' + (ym + '-01' !== first ? askLine(ym + '-01') : '') + '<button type="button" class="btn pri" data-a="monthlyOpen" data-id="' + esc(o.code + '|' + ym) + '">Prepare the request</button>') + '</div>';
+  }
+  list.forEach(function (o) {
+    if (!o.any) return;
+    var body = o.bundle ? bundleCard(o) : o.lines.map(lineCard).join('');
+    if (!multi) { h += body; return; }
+    var open = f.cOpen === o.code;
+    h += '<button type="button" class="srow sbox" aria-expanded="' + open + '" data-a="cOpen" data-id="' + esc(o.code) + '"><span class="n">' + esc(secName(o.code)) + '</span><span class="b' + (o.todo ? '' : ' m') + '">' + (o.todo ? o.todo + ' to send' : 'All sent') + '</span></button>';
+    if (open) h += body;
   });
-  if (!mine.length && !planned.length && !any) h += '<div class="s m">No dates yet.</div>';
+  if (mine.length) h += '<h2>Other dates</h2>';
   mine.forEach(function (x) {
     h += '<div class="card">' + (multi ? '<div class="sec">' + esc(secName(x.section)) + '</div>' : '') + '<div class="row"><div class="b">' + esc(x.what) + '</div><div class="b num">' + money(x.amount) + '</div></div>' +
       '<div class="s">Needed ' + day(x.date) + (x.repeat ? ' · every month' : '') + '</div>' +
       '<div class="b' + (x.v.late || x.v.last ? ' bad' : '') + '">' + (x.v.late ? 'Late. You had to ask by ' + day(x.v.askBy) + '.' : x.v.last ? 'Ask today.' : 'Ask by ' + day(x.v.askBy) + '.') + '</div>' +
       '<div class="btns"><button type="button" class="btn pri" data-a="askNow" data-id="' + esc(x.id) + '">Ask now</button>' + (canDl ? '<button type="button" class="btn" data-a="dlEdit" data-id="' + esc(x.id) + '" style="flex:0 0 auto">Change</button>' : '') + '</div></div>';
-  });
-  planned.forEach(function (x) {
-    h += '<div class="card">' + (multi ? '<div class="sec">' + esc(secName(x.sec)) + '</div>' : '') + '<div class="row"><div class="b">' + esc(x.name) + '</div><div class="b num">' + money(x.amount) + '</div></div>' +
-      '<div class="s">Needed ' + day(x.date) + ' · from the budget</div>' + askLine(x.date) + '<button type="button" class="btn pri" data-a="askPlan" data-id="' + esc(x.key) + '">Ask now</button></div>';
   });
   return h + (canDl ? '<button type="button" class="btn" data-a="dlNew">Add a date</button>' : '') + '</main>';
 }
@@ -708,20 +751,29 @@ function scrNew() {
   if (ed) f.section = ed.section;
   else if (!f.section || secs.indexOf(f.section) < 0) f.section = secs.length === 1 ? secs[0] : '';
   if (!f.pay) f.pay = 'bank';
-  var h = '<main><h1>' + (ed ? 'Change the request ' + reqNo(ed) : 'New request') + '</h1>';
+  var item = isItemForm(), mName = item ? MOL[Number(f.month.slice(5)) - 1] : '';
+  var h = '<main><h1>' + (ed ? 'Change the request ' + reqNo(ed) : item ? esc(LINE[f.line].name) : 'New request') + '</h1>';
+  if (item) {
+    var ms = askMonths().filter(function (m) { return !!monthLine(f.section, f.line, m); }); if (ms.indexOf(f.month) < 0) ms.unshift(f.month);
+    h += (S.me.sections.length > 1 || S.me.role !== 'head' ? '<div class="sec">' + esc(secName(f.section)) + '</div>' : '') + '<div class="s m">' + esc(repeatText({ line: f.line, n: 1 })) + '</div>' +
+      field('For the month of', 'rq-month', '<select class="in" id="rq-month" data-f="month" data-r="1">' + options(ms.map(function (m) { return [m, ymText(m)]; }), f.month) + '</select>');
+  }
   if (ed) h += '<div class="box em"><div class="b">The Director asks to change:</div><div>' + esc(ed.note) + '</div></div><div class="sec">' + esc(secName(ed.section)) + '</div>';
+  else if (item) h += '';
   else if (secs.length > 1) h += field('Section', 'rq-sec', '<select class="in" id="rq-sec" data-f="section" data-r="1">' + options([['', 'Choose one']].concat(secs.map(function (c) { return [c, secName(c)]; })), f.section) + '</select>');
-  h += field('What do you need?', 'rq-what', input('rq-what', 'what', f.what, 'text', 'placeholder="Example: footballs, 10"'));
-  h += field('Budget line', 'rq-line', '<select class="in" id="rq-line" data-f="line" data-r="1">' + lineOptions(f.section, f.line) + '</select>');
+  if (!item) {
+    h += field('What do you need?', 'rq-what', input('rq-what', 'what', f.what, 'text', 'placeholder="Example: footballs, 10"'));
+    h += field('Budget line', 'rq-line', '<select class="in" id="rq-line" data-f="line" data-r="1">' + lineOptions(f.section, f.line) + '</select>');
+  }
   if (isFoodForm()) {
     foodSync(); if (!f.funit) f.funit = 'kg';
     h += field('For how many people', 'rq-fpeople', input('rq-fpeople', 'fpeople', f.fpeople, 'number', 'min="1" inputmode="numeric"'));
-    h += field('Quantity', 'rq-fqty', input('rq-fqty', 'fqty', f.fqty, 'number', 'min="0" inputmode="decimal" data-b="1"'));
+    h += field(item ? 'Quantity for ' + mName : 'Quantity', 'rq-fqty', input('rq-fqty', 'fqty', f.fqty, 'number', 'min="0" inputmode="decimal" data-b="1"'));
     h += field('Unit', 'rq-funit', '<select class="in" id="rq-funit" data-f="funit" data-r="1">' + options([['kg', 'kg'], ['litres', 'litres'], ['pieces', 'pieces'], ['trays', 'trays'], ['bags', 'bags']], f.funit) + '</select>');
     h += field('Price for 1 ' + esc(f.funit === 'kg' ? 'kg' : f.funit.replace(/s$/, '')) + ', in Kwacha', 'rq-fprice', input('rq-fprice', 'fprice', f.fprice, 'number', 'min="0" inputmode="decimal" data-b="1"'));
     h += field('Left in the store now, in ' + esc(f.funit), 'rq-fstock', input('rq-fstock', 'fstock', f.fstock, 'number', 'min="0" inputmode="decimal"'));
     h += '<div class="field"><div class="lab">Amount</div><div class="b num" id="rq-calc">' + (Number(f.amount) > 0 ? money(Number(f.amount)) : 'Write the quantity and the price.') + '</div>' + (f.planAmt ? '<div class="s m num">In the plan: ' + money(f.planAmt) + '</div>' : '') + '</div>';
-  } else h += field('Amount in Kwacha', 'rq-amount', input('rq-amount', 'amount', f.amount, 'number', 'min="0" inputmode="decimal" data-b="1" placeholder="Example: 1800"'));
+  } else h += field(item ? 'Amount for ' + mName + ', in Kwacha' : 'Amount in Kwacha', 'rq-amount', input('rq-amount', 'amount', f.amount, 'number', 'min="0" inputmode="decimal" data-b="1" placeholder="Example: 1800"')) + (item && f.planAmt ? '<div class="s m num" style="margin-top:-8px;margin-bottom:12px">In the plan: ' + money(f.planAmt) + '</div>' : '');
   h += '<div id="linebox">' + lineBox(f.line, Number(f.amount) || 0, true, f.needed) + '</div>';
   h += '<div class="field"><div class="lab" id="rq-prio">Priority</div><div class="s m">P1 cannot wait. P2 important. P3 can wait.</div><div class="btns" role="group" aria-labelledby="rq-prio">' +
     ['P1', 'P2', 'P3'].map(function (p) { return '<button type="button" class="btn' + (f.prio === p ? ' on' : '') + '" aria-pressed="' + (f.prio === p) + '" data-a="setPrio" data-id="' + p + '">' + p + '</button>'; }).join('') + '</div></div>';
@@ -730,7 +782,7 @@ function scrNew() {
   h += field('Photo of the quotation', 'rq-photo', '<input class="in" id="rq-photo" type="file" accept="image/*" data-photo="form">') + (f.photo ? '<div class="good s" role="status">Photo added.</div>' : '');
   h += '<div id="noticebox">' + noticeBox() + '</div>';
   if (S.ui.err) h += '<div class="box err" role="alert">' + esc(S.ui.err) + '</div>';
-  h += '<button type="button" id="sendbtn" class="btn big ' + (isShort() ? 'em' : 'pri') + '" data-a="send">' + (ed ? (isShort() ? 'Send again as Emergency' : 'Send again') : (isShort() ? 'Send as Emergency' : 'Send request')) + '</button>' + (ed ? '<button type="button" class="btn" data-a="reviseCancel">Do not change now</button>' : '') + '</main>';
+  h += '<button type="button" id="sendbtn" class="btn big ' + (isShort() ? 'em' : 'pri') + '" data-a="send">' + (ed ? (isShort() ? 'Send again as Emergency' : 'Send again') : (isShort() ? 'Send as Emergency' : 'Send request')) + '</button>' + (ed ? '<button type="button" class="btn" data-a="reviseCancel">Do not change now</button>' : '') + (item ? '<button type="button" class="btn" data-a="tab" data-id="' + (S.me.role === 'head' ? 'soon' : 'dead') + '">Back</button>' : '') + '</main>';
   return h;
 }
 function isOpenReq(r) { return r.status === 'Waiting' || r.status === 'To revise' || r.status === 'Next week' || r.status === 'Approved'; }
@@ -740,13 +792,18 @@ function myOpen() {
   return V().requests.filter(function (r) { return (r.by === S.me.id || S.me.sections.indexOf(r.section) >= 0) && isOpenReq(r) && !notMine(r); })
     .sort(function (a, b) { var ra = a.status === 'To revise', rb = b.status === 'To revise'; if (ra !== rb) return ra ? -1 : 1; return (b.received || '') < (a.received || '') ? -1 : 1; });
 }
+function mineOwn(r) { return (r.by === S.me.id || S.me.sections.indexOf(r.section) >= 0) && !notMine(r); }
+function myReceipts() { return V().requests.filter(function (r) { return r.status === 'Paid' && !r.receipt && mineOwn(r); }).sort(function (a, b) { return a.paidAt < b.paidAt ? -1 : 1; }); }
+function myRefused() { var from = finAddDays(today(), -14); return V().requests.filter(function (r) { return r.status === 'Not approved' && r.decidedAt && finToday(r.decidedAt) >= from && mineOwn(r); }).sort(function (a, b) { return a.decidedAt < b.decidedAt ? 1 : -1; }); }
 function scrMine() {
-  var list = myOpen(), rev = list.filter(function (r) { return r.status === 'To revise'; }).length;
+  var list = myOpen(), rev = list.filter(function (r) { return r.status === 'To revise'; }).length, rec = myReceipts(), no = myRefused(), sec = S.me.sections.length > 1;
   var h = '<main><h1>My requests</h1>';
   if (S.ui.msg) h += '<div class="box ok" role="status">' + esc(S.ui.msg) + '</div>';
   h += '<div class="m">' + plural(list.length, 'open request', 'open requests') + (rev ? ' · ' + rev + ' to revise' : '') + '</div>';
   if (!list.length) h += '<div class="s m">Nothing open.</div>';
-  list.slice(0, 80).forEach(function (r) { h += reqCard(r, { sec: S.me.sections.length > 1, actions: r.status === 'To revise' ? '<button type="button" class="btn pri" data-a="reviseOpen" data-id="' + esc(r.id) + '">Change and send again</button>' : '' }); });
+  list.slice(0, 80).forEach(function (r) { h += reqCard(r, { sec: sec, actions: r.status === 'To revise' ? '<button type="button" class="btn pri" data-a="reviseOpen" data-id="' + esc(r.id) + '">Change and send again</button>' : '' }); });
+  if (rec.length) { h += '<h2>Receipt to add · ' + rec.length + '</h2>'; rec.forEach(function (r) { h += reqCard(r, { sec: sec, nopill: true, actions: '<div class="s m">Paid ' + when(r.paidAt) + '</div><button type="button" class="btn pri" data-a="openReq" data-id="' + esc(r.id) + '">Add the receipt</button>' }); }); }
+  if (no.length) { h += '<h2>Not approved · ' + no.length + '</h2>'; no.forEach(function (r) { h += reqCard(r, { sec: sec }); }); }
   h += '<button type="button" class="btn" data-a="allReqs">All my requests</button>';
   return h + '</main>';
 }
@@ -967,14 +1024,14 @@ function modal() {
     if (r.paidAt) hist += '<div class="s">Paid by ' + esc(r.paidBy) + ', ' + when(r.paidAt) + '</div>';
     if (r.receipt) hist += '<div class="s">Receipt added by ' + esc(r.receiptBy) + ', ' + when(r.receiptAt) + (r.spent != null ? ' · spent ' + money(r.spent) + (r.amount - r.spent > 0 ? ' · not spent ' + money(Math.round((r.amount - r.spent) * 100) / 100) : '') : '') + '</div>';
     if (hist) h += '<div class="card">' + hist + '</div>';
-    if (x.img) h += '<img class="photo" alt="Photo" src="' + x.img + '">';
+    if (x.img) h += '<img class="photo" alt="Photo" src="' + x.img + '" data-a="viewOpen"><button type="button" class="btn" data-a="viewOpen">Open the photo bigger</button>';
     if (x.wait) h += '<div class="s m">' + esc(x.wait) + '</div>';
     var b = '';
     if (r.quoteFile) b += '<button type="button" class="btn" data-a="seeFile" data-id="' + esc(r.quoteFile) + '">See the quotation</button>';
     if (r.receiptFile) b += '<button type="button" class="btn" data-a="seeFile" data-id="' + esc(r.receiptFile) + '">See the receipt</button>';
     if (b) h += '<div class="btns">' + b + '</div>';
-    if (!r.quoteFile && (own || acc) && r.status !== 'Cancelled') h += '<div class="field"><label for="md-quote">Add the photo of the quotation</label><input class="in" id="md-quote" type="file" accept="image/*" data-photo="quote"></div>';
-    if (r.status === 'Paid' && !r.receipt && (own || acc)) h += '<div class="card">' + mField('Amount spent, in Kwacha', 'md-spent', 'spent', 'number', 'min="0" inputmode="decimal"') + '<div class="field"><label for="md-rec">Photo of the receipt</label><input class="in" id="md-rec" type="file" accept="image/*" data-photo="receipt"></div>' + (m.photo ? '<div class="good s">Photo added.</div>' : '') + '<button type="button" class="btn pri" data-a="receipt" data-id="' + esc(r.id) + '">' + (m.photo ? 'Save the receipt' : 'Receipt added, no photo') + '</button></div>';
+    if (!r.quoteFile && (own || acc) && r.status !== 'Cancelled' && r.status !== 'Paid' && r.status !== 'Not approved') h += '<div class="field"><label for="md-quote">Add the photo of the quotation</label><input class="in" id="md-quote" type="file" accept="image/*" data-photo="quote"></div>';
+    if (r.status === 'Paid' && !r.receipt && (own || acc)) h += '<div class="card">' + mField('Amount spent, in Kwacha', 'md-spent', 'spent', 'number', 'min="0" inputmode="decimal"') + '<div class="field"><label for="md-rec">Photo of the receipt</label><input class="in" id="md-rec" type="file" accept="image/*" data-photo="receipt"></div>' + (m.photo ? '<div class="good s">Photo added.</div>' : '') + '<button type="button" class="btn pri" data-a="receipt" data-id="' + esc(r.id) + '">' + (m.photo ? 'Save the receipt' : 'Save without a photo') + '</button></div>';
     if (r.status === 'To revise' && (own || acc)) h += '<button type="button" class="btn pri" data-a="reviseOpen" data-id="' + esc(r.id) + '">Change and send again</button>';
     if ((r.status === 'Waiting' || r.status === 'Next week' || r.status === 'To revise') && own) h += '<button type="button" class="btn" data-a="cancelReq" data-id="' + esc(r.id) + '">Cancel this request</button>';
     h += err + close;
@@ -1067,6 +1124,7 @@ function render() {
     if (EXPORTS[S.ui.tab]) { var cut = body.lastIndexOf('</main>'); body = body.slice(0, cut) + '<button type="button" class="btn" data-a="exportPage">' + ic('down') + 'Export in Excel</button>' + body.slice(cut); }
     h = head() + body + nav() + modal();
   }
+  if (S.ui.viewer) h += '<div class="viewer" role="dialog" aria-modal="true" aria-label="Photo"><div class="vbar"><button type="button" class="btn" data-a="viewZoom" data-id="-1"' + (S.ui.viewer.zoom <= 1 ? ' disabled' : '') + '>Smaller</button><button type="button" class="btn" data-a="viewZoom" data-id="1"' + (S.ui.viewer.zoom >= 5 ? ' disabled' : '') + '>Bigger</button><button type="button" class="btn pri" data-a="viewClose">Close</button></div><div class="vscroll"><img id="viewer-img" alt="Photo" src="' + S.ui.viewer.src + '" style="width:' + (S.ui.viewer.zoom * 100) + '%"></div></div>';
   h += comButton();
   app.className = S.picking ? 'picking' : '';
   app.innerHTML = h;
@@ -1105,7 +1163,7 @@ function sendDemoComments() {
     return false;
   }).catch(function () { S.comSending = false; return false; });
 }
-function go(tab) { S.thanks = ''; S.ui.tab = tab; S.ui.err = ''; S.ui.msg = ''; S.ui.modal = null; S.ui.merr = ''; S.ui.keepScroll = false; render(); }
+function go(tab) { S.thanks = ''; S.ui.viewer = null; S.ui.tab = tab; S.ui.err = ''; S.ui.msg = ''; S.ui.modal = null; S.ui.merr = ''; S.ui.keepScroll = false; render(); }
 function openModal(x, m) { S.ui.modal = x; S.ui.m = m || {}; S.ui.merr = ''; render(); }
 function refreshBoxes() {
   var f = S.ui.form, a = document.getElementById('linebox'), b = document.getElementById('noticebox'), s = document.getElementById('sendbtn');
@@ -1286,7 +1344,12 @@ function exportSheets() {
     out.push({ name: 'Waiting by section', head: ['Section', 'Requests', 'P1 (K)', 'P2 (K)', 'P3 (K)', 'Total (K)'], rows: hs.filter(function (c) { return bs[c]; }).map(function (c) { var x = bs[c]; return [secName(c), x.n, x.P1, x.P2, x.P3, x.P1 + x.P2 + x.P3]; }) });
     weekSheet();
   }
-  else if (t === 'soon') dl('Coming up', v.deadlines.filter(function (x) { return !x.deleted && !x.asked && S.me.sections.indexOf(x.section) >= 0; }));
+  else if (t === 'soon') {
+    var cm = askMonths().indexOf(f.cMonth) >= 0 ? f.cMonth : askMonths()[0], mrows = [];
+    S.me.sections.forEach(function (c0) { if (!SEC[c0] || monthlySecs().indexOf(c0) >= 0) return; monthPlan(c0, cm).forEach(function (g) { mrows.push([secName(c0), g.line, g.name, repeatText(g), g.total, g.asked, g.open, g.reqs.length ? (PILL[g.reqs[0].status] || PILL.Waiting)[0] : 'Not asked']); }); });
+    out.push({ name: 'To ask ' + cm, head: ['Section', 'Budget line code', 'Budget line', 'When', 'In the plan (K)', 'Asked (K)', 'Still to ask (K)', 'Status'], rows: mrows });
+    dl('Other dates', v.deadlines.filter(function (x) { return !x.deleted && !x.asked && S.me.sections.indexOf(x.section) >= 0; }));
+  }
   else if (t === 'dead') {
     var wk0 = finWeekKey(today()), ms = monthlySecs();
     out.push({ name: 'Planned', head: ['Week of', 'Date', 'Section', 'Budget line code', 'Budget line', 'Amount (K)', 'Priority', 'Status', 'Request'], rows: planItems(finAddDays(wk0, -14), finAddDays(wk0, 34)).filter(function (x) { return x.fixed || ms.indexOf(x.sec) < 0; }).map(function (x) { return [finWeekKey(x.date), x.date, secName(x.sec), x.line, x.name + (x.fixed ? ' (fixed)' : ''), x.amount, x.prio, x.req ? (PILL[x.req.status] || PILL.Waiting)[0] : 'Not asked', x.req ? x.req.no || '' : '']; }) });
@@ -1312,20 +1375,23 @@ function exportSheets() {
   } else if (t === 'people') out.push({ name: 'People', head: ['Name', 'Role', 'Sections', 'Administrator', 'Can enter'], rows: v.users.map(function (u) { return [u.name, { head: 'Section head', director: 'Director', accountant: 'Accountant', viewer: 'Can look' }[u.role], (u.sections || []).map(secName).join(', '), u.admin ? 'Yes' : '', u.active === false ? 'No' : 'Yes']; }) });
   else if (t === 'comments') out.push({ name: f.cDone ? 'Comments done' : 'Open comments', head: ['Time', 'Who', 'From the demo', 'Screen', 'Word or place', 'Comment', 'Version', 'Phone or computer', 'Done', 'Done by', 'Done on'], rows: comList().map(function (c) { return [c.time ? finToday(c.time) + ' ' + new Date(Date.parse(c.time) + FIN_TZ_MINUTES * 60000).toISOString().slice(11, 16) : '', c.byName, c.demo ? 'Demo' : '', c.page, c.target, c.text, c.version, c.phone ? 'Phone' : 'Computer', c.done ? 'Done' : '', c.doneBy, c.doneAt ? finToday(c.doneAt) : '']; }) });
   else if (t === 'budget') {
-    var secs = budgetSections(), lines = [];
-    out.push({ name: 'Sections', head: ['Code', 'Section', 'Budget ' + FIN_BUDGET.year + ' (K)', 'Approved so far (K)', '% of the budget', 'Left (K)'], rows: secs.map(function (s) { var u = sectionUse(s.code); return [s.code, s.name, s.total, u, pct(u, s.total), s.total - u]; }) });
-    secs.forEach(function (s) { s.lines.forEach(function (L) { var u = lineUse(L.id); lines.push([L.id, s.name, L.name, L.act, L.qty, L.unit, L.freq, L.total, u.used, pct(u.used, L.total), L.total - u.used, u.times]); }); });
+    var secs = budgetOrder(budgetSections(), function (s) { return s.total; }), lines = [];
+    out.push({ name: 'Sections', head: ['Code', 'Section', 'Budget ' + FIN_BUDGET.year + ' (K)', '% of the whole budget', 'Approved so far (K)', '% of the section budget', 'Left (K)'], rows: secs.map(function (s) { var u = sectionUse(s.code); return [s.code, s.name, s.total, pct(s.total, FIN_BUDGET.total), u, pct(u, s.total), s.total - u]; }) });
+    secs.forEach(function (s) { budgetOrder(s.lines, function (L) { return L.total; }).forEach(function (L) { var u = lineUse(L.id); lines.push([L.id, s.name, L.name, L.act, L.qty, L.unit, L.freq, L.total, u.used, pct(u.used, L.total), L.total - u.used, u.times]); }); });
     out.push({ name: 'Budget lines', head: ['Line code', 'Section', 'Budget line', 'Activity', 'Quantity', 'Unit cost (K)', 'Times a year', 'Budget ' + FIN_BUDGET.year + ' (K)', 'Approved so far (K)', '% of the line', 'Left (K)', 'Times approved'], rows: lines });
   }
   return out;
 }
 var EXPORTS = { week: 'week', soon: 'coming-up', mine: 'my-requests', decide: 'to-decide', dead: 'deadlines', month: 'by-section', pay: 'to-pay', rec: 'receipts', over: 'overview', plan: 'spending-plan', all: 'requests', people: 'people', budget: 'budget', comments: 'comments' };
+function budgetOrder(list, get) { return S.ui.form.bOrder === 'file' ? list : list.slice().sort(function (a, b) { return get(b) - get(a); }); }
 function scrBudget() {
-  var open = S.ui.form.bsec, h = '<main><div class="row" style="align-items:center"><h1>Budget ' + FIN_BUDGET.year + '</h1><button type="button" class="btn" data-a="tab" data-id="more">Back</button></div>';
-  budgetSections().forEach(function (s) {
+  var f = S.ui.form, open = f.bsec, all = budgetSections(), whole = FIN_BUDGET.total, h = '<main><div class="row" style="align-items:center"><h1>Budget ' + FIN_BUDGET.year + '</h1><button type="button" class="btn" data-a="tab" data-id="more">Back</button></div>';
+  h += field('Order', 'bg-order', '<select class="in" id="bg-order" data-f="bOrder" data-r="1">' + options([['', 'Highest first'], ['file', 'As in the budget']], f.bOrder || '') + '</select>');
+  if (finSeesAll(S.me)) h += '<div class="card num b">Total: ' + money(whole) + '</div>';
+  budgetOrder(all, function (s) { return s.total; }).forEach(function (s) {
     var u = sectionUse(s.code), p = pct(u, s.total);
-    h += '<div class="card tap" role="button" tabindex="0" data-a="budgetOpen" data-id="' + s.code + '"><div class="row"><div class="b">' + esc(s.name) + '</div><div class="s m num">' + money(s.total) + '</div></div><div class="bar" aria-hidden="true"><i style="width:' + Math.min(100, p) + '%"></i></div><div class="s num">Approved so far: ' + money(u) + ' (' + p + '%) · ' + plural(s.lines.length, 'line', 'lines') + '</div>';
-    if (open === s.code) s.lines.forEach(function (L) { var x = lineUse(L.id); h += '<div class="row s" style="border-top:1px solid var(--line);padding-top:6px"><div>' + esc(L.name) + '</div><div class="num">' + money(x.used) + ' of ' + money(L.total) + '</div></div>'; });
+    h += '<div class="card tap" role="button" tabindex="0" data-a="budgetOpen" data-id="' + s.code + '"><div class="row"><div class="b">' + esc(s.name) + '</div><div class="s m num">' + money(s.total) + ' · ' + pct(s.total, whole) + '%</div></div><div class="bar" aria-hidden="true"><i style="width:' + Math.min(100, p) + '%"></i></div><div class="s num">Approved so far: ' + money(u) + ' (' + p + '%) · ' + plural(s.lines.length, 'line', 'lines') + '</div>';
+    if (open === s.code) budgetOrder(s.lines, function (L) { return L.total; }).forEach(function (L) { var x = lineUse(L.id); h += '<div class="row s" style="border-top:1px solid var(--line);padding-top:6px"><div>' + esc(L.name) + '</div><div class="num">' + money(x.used) + ' of ' + money(L.total) + '</div></div>'; });
     h += '</div>';
   });
   return h + '</main>';
@@ -1405,6 +1471,9 @@ var H = {
     if (id === 'pending') { x.wait = 'The photo is still on the phone of who added it. It arrives when that phone has internet.'; return render(); }
     call({ action: 'file_get', user: S.me.id, cred: S.cred, id: id }).then(function (res) { x.wait = ''; if (res.ok) x.img = 'data:' + res.mime + ';base64,' + res.b64; else x.wait = 'The photo was not found.'; render(); }).catch(function () { x.wait = 'No internet: the photo cannot be opened now.'; render(); });
   },
+  viewOpen: function () { var x = S.ui.modal; if (!x || !x.img) return; S.ui.viewer = { src: x.img, zoom: 1 }; S.ui.keepScroll = true; render(); },
+  viewZoom: function (el) { var v = S.ui.viewer; if (!v) return; v.zoom = Math.max(1, Math.min(5, v.zoom + Number(el.dataset.id))); S.ui.keepScroll = true; render(); },
+  viewClose: function () { S.ui.viewer = null; S.ui.keepScroll = true; render(); },
   receipt: function (el) { var r = act('receipt', { id: el.dataset.id, photo: S.ui.m.photo || null, spent: S.ui.m.spent === '' || S.ui.m.spent == null ? null : Number(S.ui.m.spent) }); if (!r.ok) S.ui.merr = errText(r.error); else S.ui.modal = null; render(); },
   approve: function (el) { var r = act('decide', { id: el.dataset.id, status: 'Approved', note: '' }); if (!r.ok) S.notices.push(errText(r.error)); render(); },
   later: function (el) { openModal({ type: 'note', id: el.dataset.id, status: 'Next week' }); },
@@ -1416,9 +1485,17 @@ var H = {
   planItem: function (key) { var p = key.split('|'), L = LINE[p[0]]; if (!L) return null; var list = planItems(p[1] + '-01', p[1] + '-31'); for (var i = 0; i < list.length; i++) if (list[i].key === key) return list[i]; return null; },
   planSend: function (el) {
     var x = H.planItem(el.dataset.id); if (!x || x.req) return;
-    if (lineFood(LINE[x.line])) return H.askPlan(el);      /* a food line: the form asks people, quantity and price */
+    if (lineFood(LINE[x.line])) return H.askMonth({ dataset: { id: x.line + '|' + x.date.slice(0, 7) } });      /* a food line: the form asks people, quantity and price, for the month */
     var r = act('req_new', { id: uid(), section: x.sec, what: x.name, amount: x.amount, line: x.line, lineName: x.name, prio: x.prio, needed: x.date, pay: 'bank', plan: x.key, created: today() });
     if (!r.ok) S.notices.push(errText(r.error)); else S.thanks = 'Sent to the Director.'; S.ui.keepScroll = true; render();
+  },
+  cOpen: function (el) { S.ui.form.cOpen = S.ui.form.cOpen === el.dataset.id ? '' : el.dataset.id; S.ui.keepScroll = true; render(); },
+  /* open one budget line and ask its amount for one month */
+  askMonth: function (el) {
+    var p = el.dataset.id.split('|'), L = LINE[p[0]]; if (!L) return;
+    var g = monthLine(L.sec, L.id, p[1]), amt = g ? g.open : 0;
+    S.ui.form = { section: L.sec, line: L.id, month: p[1], what: L.name + ', ' + ymText(p[1]), amount: amt ? String(amt) : '', needed: g && g.first ? g.first : p[1] + '-01', pay: 'bank', prio: g ? g.prio : '', plan: L.id + '|' + p[1] + '|m', planAmt: amt, cMonth: p[1] };
+    go('new');
   },
   askPlan: function (el) { var x = H.planItem(el.dataset.id); if (!x) return; S.ui.form = { section: x.sec, what: x.name, amount: String(x.amount), line: x.line, needed: x.date, pay: 'bank', prio: x.prio, plan: x.key, planAmt: x.amount }; go('new'); },
   monthlyOpen: function (el) { var p = el.dataset.id.split('|'); S.ui.form = { mSec: p[0], mYm: p[1], prio: 'P1', pay: 'bank' }; go('monthly'); },
@@ -1596,6 +1673,7 @@ document.addEventListener('input', function (ev) {
   if (t.dataset.f) {
     S.ui.form[t.dataset.f] = t.value;
     if (t.dataset.f === 'section') { S.ui.form.line = ''; }
+    if (t.dataset.f === 'month') formMonth();
     if (t.dataset.r) { render(); return; }
     if (t.dataset.mo) { var mt = document.getElementById('mo-total'); if (mt) mt.textContent = money(moTotal()); }
     if (t.dataset.b) refreshBoxes();

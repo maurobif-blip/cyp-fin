@@ -8,7 +8,7 @@ var FIN_TZ_MINUTES = 120; /* Zambia, UTC+2 */
 
 function finNewDb() {
   return { v: 1, rev: 0, seq: 0, users: [], requests: [], deadlines: [], comments: [],
-    settings: { rev: 0, noticeDays: 5, approvalDay: 4, countFrom: '2026-12-01', weeks: {}, weeksExp: {}, weeksDate: {}, plan: {}, monthly: ['SCH', 'FAM'] }, opIds: [] };
+    settings: { rev: 0, noticeDays: 5, approvalDay: 1, dayV2: true, countFrom: '2026-12-01', weeks: {}, weeksExp: {}, weeksDate: {}, plan: {}, monthly: ['SCH', 'FAM'] }, opIds: [] };
 }
 
 /* ---- dates: plain yyyy-mm-dd strings, no time zones inside ---- */
@@ -405,6 +405,13 @@ function finHandle(req, store) {
   if (a !== 'sync') return { ok: false, error: 'action' };
 
   var results = [], info = { requests: [], audit: [], comments: [] }, ops = req.ops || [];
+  /* once: the day of the decisions moves from Thursday, the first default, to Monday, as asked on 16 November 2026 */
+  if (!db.settings.dayV2) {
+    var wasThu = db.settings.approvalDay === 4;
+    if (wasThu) db.settings.approvalDay = 1;
+    db.settings.dayV2 = true; db.rev++; db.settings.rev = db.rev; dirty = true;
+    if (wasThu) info.audit.push({ time: now, user: 'CYP FIN', action: 'Rules changed', no: '', detail: 'Day of the decisions: Monday' });
+  }
   for (i = 0; i < ops.length; i++) {
     var op = ops[i];
     if (!op || !op.id) { results.push({ id: '', ok: false, error: 'op' }); continue; }
