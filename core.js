@@ -75,6 +75,25 @@ function finFood(x) {
   if (!(p >= 1 && p <= 100000) || !(q > 0 && q <= 1000000) || !(pr > 0 && pr <= 100000000) || !(st >= 0 && st <= 1000000)) return false;
   return { people: p, qty: Math.round(q * 100) / 100, unit: finText(x.unit, 12) || 'kg', price: Math.round(pr * 100) / 100, stock: Math.round(st * 100) / 100 };
 }
+/* the parts of a request: on which day each part of the money is needed */
+function finParts(list, amount) {
+  if (!list || !list.length || list.length < 2 || list.length > 12) return null;
+  var out = [], sum = 0;
+  for (var i = 0; i < list.length; i++) {
+    var a = Math.round(Number(list[i].amount) * 100) / 100;
+    if (!finIsDate(list[i].date) || !(a > 0)) return null;
+    sum += a; out.push({ date: String(list[i].date), amount: a });
+  }
+  if (Math.abs(sum - amount) > 0.05) return null;
+  out.sort(function (x, y) { return x.date < y.date ? -1 : x.date > y.date ? 1 : 0; });
+  return out;
+}
+/* how much of a request is paid so far */
+function finPaid(r) {
+  if (!r.pays) return r.status === 'Paid' ? r.amount : 0;
+  var s = 0; for (var i = 0; i < r.pays.length; i++) s += r.pays[i].amount;
+  return Math.round(s * 100) / 100;
+}
 function finMonthlySecs(s) { return s.monthly || ['SCH', 'FAM']; }
 function finText(x, max) { return String(x == null ? '' : x).replace(/\s+/g, ' ').trim().slice(0, max || 200); }
 
@@ -125,7 +144,7 @@ function finApply(db, u, op, nowIso, store, info) {
       line: String(d.line), lineName: finText(d.lineName, 120), prio: d.prio, needed: d.needed, pay: d.pay === 'cash' ? 'cash' : 'bank',
       created: created, received: nowIso, notice: notice, emergency: emergency, reason: emergency ? finText(d.reason, 60) : '', why: emergency ? finText(d.why, 200) : '',
       by: u.id, byName: u.name, status: 'Waiting', decidedBy: '', decidedAt: '', note: '', week: '', paidBy: '', paidAt: '',
-      receipt: false, receiptBy: '', receiptAt: '', quoteFile: saveFile(d.photo, 'quotation-' + d.id), receiptFile: '', deadline: d.deadline ? String(d.deadline) : '', plan: planKey, month: month, items: bundle ? bundle.items : null, food: food || null };
+      receipt: false, receiptBy: '', receiptAt: '', quoteFile: saveFile(d.photo, 'quotation-' + d.id), receiptFile: '', deadline: d.deadline ? String(d.deadline) : '', plan: planKey, month: month, items: bundle ? bundle.items : null, food: food || null, parts: bundle ? null : finParts(d.parts, Math.round(amount * 100) / 100) };
     db.requests.push(r);
     touched(r, 'New request', what + ' K' + r.amount + (emergency ? ' EMERGENCY' : ''));
     if (r.deadline) {
@@ -275,6 +294,7 @@ function finApply(db, u, op, nowIso, store, info) {
     if (u.role !== 'director') return fail('role');
     if (['Approved', 'Next week', 'Not approved', 'Waiting', 'To revise'].indexOf(d.status) < 0) return fail('fields');
     if (r.status === 'Paid' || r.status === 'Cancelled') return fail('status');
+    if (r.pays && r.pays.length) return fail('status');      /* a part is already paid: the decision stays */
     if (d.status === 'To revise' && !finText(d.note)) return fail('note');
     r.status = d.status; r.note = finText(d.note, 200);
     if (d.status !== 'Approved') r.payOn = '';
@@ -301,7 +321,7 @@ function finApply(db, u, op, nowIso, store, info) {
     var reason2 = finText(d.reason, 60) || r.reason, why2 = finText(d.why, 200) || r.why;
     if (em2 && (!reason2 || !why2)) return fail('reason');
     if (bundle2) r.items = bundle2.items;
-    r.food = food2 || null;
+    r.food = food2 || null; r.parts = r.items ? null : finParts(d.parts, Math.round(amount2 * 100) / 100);
     r.what = what2; r.amount = Math.round(amount2 * 100) / 100; r.line = String(d.line); r.lineName = finText(d.lineName, 120); r.prio = d.prio; r.needed = d.needed;
     r.pay = d.pay === 'cash' ? 'cash' : 'bank'; r.notice = notice2; r.emergency = em2; r.reason = em2 ? reason2 : ''; r.why = em2 ? why2 : '';
     var q2 = saveFile(d.photo, 'quotation-' + r.id + '-' + ((r.revised || 0) + 1)); if (q2) r.quoteFile = q2;
@@ -318,17 +338,28 @@ function finApply(db, u, op, nowIso, store, info) {
     touched(r, 'Pay date', r.payOn || 'removed');
     return { ok: true };
   }
+  /* a request is paid in one go or in parts, according to the need */
   if (t === 'pay') {
     if (u.role !== 'accountant') return fail('role');
     if (r.status !== 'Approved') return fail('status');
-    r.status = 'Paid'; r.paidBy = u.name; r.paidAt = nowIso; if (!r.week) r.week = finWeekKey(today);
-    touched(r, 'Paid', 'K' + r.amount + ' ' + r.pay);
+    var rest = Math.round((r.amount - finPaid(r)) * 100) / 100, close = !!d.close;
+    var pa = d.amount == null || d.amount === '' ? (close ? 0 : rest) : Math.round(Number(d.amount) * 100) / 100;
+    if (!(pa >= 0) || (!(pa > 0) && !close)) return fail('amount');
+    if (pa > rest + 0.005) return fail('over');
+    if (!r.pays) r.pays = [];
+    if (pa > 0) r.pays.push({ at: nowIso, date: finIsDate(d.date) && d.date <= finAddDays(today, 1) ? d.date : today, amount: pa, by: u.name, pay: d.pay === 'cash' ? 'cash' : d.pay === 'bank' ? 'bank' : r.pay });
+    var all = finPaid(r) >= r.amount - 0.005;
+    if (all || close) { r.status = 'Paid'; r.paidBy = u.name; r.paidAt = nowIso; r.closed = !all; if (!r.week) r.week = finWeekKey(today); }
+    touched(r, all ? 'Paid' : close ? 'Closed, not all paid' : 'Part paid', 'K' + pa + ' of K' + r.amount + ' ' + r.pay);
     return { ok: true };
   }
+  /* takes back the last payment, or opens again a request that was closed */
   if (t === 'unpay') {
     if (u.role !== 'accountant') return fail('role');
-    if (r.status !== 'Paid') return fail('status');
-    r.status = 'Approved'; r.paidBy = ''; r.paidAt = ''; r.receipt = false; r.receiptBy = ''; r.receiptAt = ''; r.spent = null;
+    var np = r.pays ? r.pays.length : 0;
+    if (r.status !== 'Paid' && !(r.status === 'Approved' && np)) return fail('status');
+    if (!r.pays) r.pays = []; else if (!r.closed && np) r.pays.pop();
+    r.status = 'Approved'; r.closed = false; r.paidBy = ''; r.paidAt = ''; r.receipt = false; r.receiptBy = ''; r.receiptAt = ''; r.spent = null;
     touched(r, 'Payment undone', '');
     return { ok: true };
   }
@@ -437,4 +468,4 @@ function finHandle(req, store) {
   return out;
 }
 
-if (typeof module !== 'undefined') module.exports = { finHandle: finHandle, finApply: finApply, finNewDb: finNewDb, finWorkDays: finWorkDays, finAskBy: finAskBy, finWeekKey: finWeekKey, finToday: finToday, finAddDays: finAddDays, finAddMonth: finAddMonth };
+if (typeof module !== 'undefined') module.exports = { finPaid: finPaid, finHandle: finHandle, finApply: finApply, finNewDb: finNewDb, finWorkDays: finWorkDays, finAskBy: finAskBy, finWeekKey: finWeekKey, finToday: finToday, finAddDays: finAddDays, finAddMonth: finAddMonth };

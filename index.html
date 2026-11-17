@@ -130,7 +130,7 @@ img.photo{max-width:100%;border-radius:8px;border:1px solid var(--line)}
 <script src="core.js"></script>
 <script>
 'use strict';
-var FIN_VERSION = 'alpha 0.9';
+var FIN_VERSION = 'alpha 0.10';
 
 /* ================= small tools ================= */
 function esc(s) { return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]; }); }
@@ -259,7 +259,7 @@ function V() {
 function fresh() { S._v = null; }
 var ERR = { section: 'You cannot do this for that section.', what: 'Write what you need.', amount: 'Write the amount.', line: 'Choose the budget line.', prio: 'Choose the priority.', date: 'Choose the date.',
   reason: 'Say why it is an Emergency.', role: 'Your role cannot do this.', status: 'This request has changed in the meantime. Look at it again.', fields: 'Something is missing.', id: 'Not found.',
-  pin: 'A PIN is needed.', last_admin: 'At least one administrator must stay.', photo: 'The photo could not be read.', server: 'The database had a problem. Try again.', note: 'Write what should change.', food: 'Write the people, the quantity, the price and what is left in the store.', comment: 'Write the comment.', full: 'There are too many comments. Tell the administrator.' };
+  pin: 'A PIN is needed.', last_admin: 'At least one administrator must stay.', photo: 'The photo could not be read.', server: 'The database had a problem. Try again.', note: 'Write what should change.', over: 'This is more than what is left to pay.', food: 'Write the people, the quantity, the price and what is left in the store.', comment: 'Write the comment.', full: 'There are too many comments. Tell the administrator.' };
 function errText(e) { return ERR[e] || ('Not accepted (' + e + ').'); }
 /* do one change: check it here first, show it at once, send it when there is internet */
 function act(t, d) {
@@ -318,9 +318,18 @@ function signOut(msg) {
 }
 
 /* ================= numbers used on several screens ================= */
+/* the payments of a request, the parts in which it is needed, what is still to pay up to a day */
+function paysOf(r) { return r.pays ? r.pays : (r.status === 'Paid' ? [{ at: r.paidAt, date: finToday(r.paidAt), amount: r.amount, by: r.paidBy, pay: r.pay }] : []); }
+function restOf(r) { return Math.round((r.amount - finPaid(r)) * 100) / 100; }
+function partsOf(r) { return r.parts && r.parts.length ? r.parts : [{ date: r.needed, amount: r.amount }]; }
+function dueBy(r, end) { var s = 0; partsOf(r).forEach(function (p) { if (p.date <= end) s += p.amount; }); return Math.max(0, Math.round((s - finPaid(r)) * 100) / 100); }
+function nextPart(r) { var paid = finPaid(r), acc = 0, ps = partsOf(r); for (var i = 0; i < ps.length; i++) { acc += ps[i].amount; if (acc > paid + 0.005) return { date: ps[i].date, amount: Math.round(Math.min(acc - paid, r.amount - paid) * 100) / 100 }; } return null; }
+function committed(r) { return r.closed ? finPaid(r) : r.amount; }
+function splitParts(total, dates) { var n = dates.length, each = Math.floor(total / n * 100) / 100; return dates.map(function (d, i) { return { date: d, amount: i < n - 1 ? each : Math.round((total - each * (n - 1)) * 100) / 100 }; }); }
+function weekPays(k) { var out = []; V().requests.forEach(function (r) { var ps = paysOf(r); ps.forEach(function (p, i) { if (finWeekKey(p.date) === k) out.push({ r: r, amount: p.amount, pay: p.pay || r.pay, date: p.date, last: i === ps.length - 1 }); }); }); return out; }
 function counted(r, s) { return (r.status === 'Approved' || r.status === 'Paid') && r.needed >= s.countFrom; }
-function lineUse(id) { var v = V(), sum = 0, n = 0; v.requests.forEach(function (r) { if (!counted(r, v.settings)) return; if (r.items) r.items.forEach(function (it) { if (it.line === id) { sum += it.amount; n++; } }); else if (r.line === id) { sum += r.amount; n++; } }); return { used: sum, times: n }; }
-function sectionUse(code) { var v = V(), sum = 0; v.requests.forEach(function (r) { if (r.section === code && counted(r, v.settings)) sum += r.amount; }); return sum; }
+function lineUse(id) { var v = V(), sum = 0, n = 0; v.requests.forEach(function (r) { if (!counted(r, v.settings)) return; if (r.items) r.items.forEach(function (it) { if (it.line === id) { sum += it.amount; n++; } }); else if (r.line === id) { sum += committed(r); n++; } }); return { used: sum, times: n }; }
+function sectionUse(code) { var v = V(), sum = 0; v.requests.forEach(function (r) { if (r.section === code && counted(r, v.settings)) sum += r.items ? r.amount : committed(r); }); return sum; }
 function planPct(L) { var t = today(); if (L.freq !== 12 || t.slice(0, 4) !== String(FIN_BUDGET.year)) return null; return Math.round(Number(t.slice(5, 7)) / 12 * 100); }
 function emCount(code) { var v = V(), m = today().slice(0, 7), n = 0; v.requests.forEach(function (r) { if (r.section === code && r.emergency && r.created.slice(0, 7) === m && r.status !== 'Cancelled') n++; }); return n; }
 /* the money comes in the first, the second and the last week of the month: the indicative amount of a week */
@@ -331,23 +340,26 @@ function indicative(wk) {
   yms.forEach(function (ym) { Object.keys(TR_DAYS).forEach(function (k) { var d = ym + '-' + TR_DAYS[k]; if (tr[k] != null && d >= wk && d <= end) sum = (sum || 0) + tr[k]; }); });
   return sum;
 }
-/* what is left from the weeks before: the money received less what was approved, from the first week with money written */
+/* what is left from the weeks before: the money received less what was paid, from the first week with money written */
 function carried(wk) {
   var v = V(), s = v.settings, keys = Object.keys(s.weeks || {}).sort(), sum = 0;
   if (!keys.length || keys[0] >= wk) return null;
   keys.forEach(function (k) { if (k < wk) sum += s.weeks[k]; });
-  v.requests.forEach(function (r) { if (r.week && r.week >= keys[0] && r.week < wk && (r.status === 'Approved' || r.status === 'Paid')) sum -= r.amount; });
+  v.requests.forEach(function (r) { paysOf(r).forEach(function (p) { var k = finWeekKey(p.date); if (k >= keys[0] && k < wk) sum -= p.amount; }); });
   return Math.round(sum * 100) / 100;
 }
 function carText(n) { return n >= 0 ? 'Left from before: ' + money(n) : 'Short from before: ' + money(-n); }
 function sumOf(list) { return list.reduce(function (n, r) { return n + r.amount; }, 0); }
 function weekInfo(k) {
-  var v = V(), s = v.settings, wk = k || finWeekKey(today()), rec = s.weeks[wk], exp = (s.weeksExp || {})[wk], used = 0;
-  v.requests.forEach(function (r) { if (r.week === wk && (r.status === 'Approved' || r.status === 'Paid')) used += r.amount; });
+  var v = V(), s = v.settings, now = finWeekKey(today()), wk = k || now, rec = s.weeks[wk], exp = (s.weeksExp || {})[wk], paid = 0, due = 0, end = finAddDays(wk, 6);
+  weekPays(wk).forEach(function (x) { paid += x.amount; });
+  /* still to pay: the parts of the approved requests needed up to the end of this week and not paid yet */
+  if (wk >= now) v.requests.forEach(function (r) { if (r.status === 'Approved') due += dueBy(r, end); });
+  paid = Math.round(paid * 100) / 100; due = Math.round(due * 100) / 100; var used = paid + due;
   /* what is left is counted on the money received; before it arrives, on the money expected, or on the indicative amount */
   var ind = exp == null ? indicative(wk) : null, car = carried(wk);
   var onRec = rec != null, set = onRec || exp != null || ind != null || car != null, base = onRec ? rec : (exp != null ? exp : (ind || 0));
-  return { key: wk, set: set, money: base, used: used, left: Math.round(((car || 0) + base - used) * 100) / 100, rec: rec, exp: exp, ind: ind, car: car, recDate: (s.weeksDate || {})[wk] || '', onRec: onRec,
+  return { key: wk, set: set, money: base, used: used, paid: paid, due: due, left: Math.round(((car || 0) + base - used) * 100) / 100, rec: rec, exp: exp, ind: ind, car: car, recDate: (s.weeksDate || {})[wk] || '', onRec: onRec,
     basis: onRec ? 'received' : exp != null ? 'expected' : ind != null ? 'indicative' : 'received',
     onText: onRec ? 'On the money received.' : exp != null ? 'On the money expected.' : ind != null ? 'On the indicative amount.' : 'On the money left from before.' };
 }
@@ -365,10 +377,10 @@ function weekDecided(k) {
 function weekWaiting() { var wk = finWeekKey(today()); return V().requests.filter(function (r) { return r.status === 'Waiting' || (r.status === 'Next week' && !!r.decidedAt && finWeekKey(finToday(r.decidedAt)) < wk); }); }
 function byPrio(a, b) { var o = { P1: 1, P2: 2, P3: 3 }; if (a.prio !== b.prio) return (o[a.prio] || 9) - (o[b.prio] || 9); if (a.emergency !== b.emergency) return a.emergency ? -1 : 1; return a.needed < b.needed ? -1 : 1; }
 function weekPlanData() {
-  var w = weekInfo(), list = weekWaiting(), p = { P1: 0, P2: 0, P3: 0 }, map = {}, rows = [], secs = Object.keys(SEC);
+  var w = weekInfo(), list = weekWaiting(), p = { P1: 0, P2: 0, P3: 0 }, q = { P1: 0, P2: 0, P3: 0 }, map = {}, rows = [], secs = Object.keys(SEC), wend = finAddDays(w.key, 6);
   list.forEach(function (r) {
     var pr = p[r.prio] != null ? r.prio : 'P3';
-    p[pr] += r.amount;
+    p[pr] += r.amount; q[pr] += dueBy(r, wend);
     (r.items || [{ line: r.line, lineName: r.lineName, amount: r.amount }]).forEach(function (it) {
       var k = r.section + '|' + (it.line || ''), x = map[k] || (map[k] = { sec: r.section, line: it.line || '', name: LINE[it.line] ? LINE[it.line].name : (it.lineName || 'Not in the budget'), P1: 0, P2: 0, P3: 0 });
       x[pr] += it.amount;
@@ -376,7 +388,7 @@ function weekPlanData() {
   });
   Object.keys(map).forEach(function (k) { rows.push(map[k]); });
   rows.sort(function (a, b) { if (a.sec !== b.sec) return secs.indexOf(a.sec) - secs.indexOf(b.sec); return a.line < b.line ? -1 : 1; });
-  return { w: w, n: list.length, p: p, c1: p.P1, c2: p.P1 + p.P2, c3: p.P1 + p.P2 + p.P3, rows: rows };
+  return { w: w, n: list.length, p: p, c1: p.P1, c2: p.P1 + p.P2, c3: p.P1 + p.P2 + p.P3, d1: q.P1, d2: q.P1 + q.P2, d3: q.P1 + q.P2 + q.P3, rows: rows };
 }
 function kw(n) { return (Math.round(Number(n) * 100) / 100).toLocaleString('en-US'); }
 function weekPlan() {
@@ -387,13 +399,13 @@ function weekPlan() {
     field('Date received', 'acc-date', input('acc-date', 'wdate', f.wdate != null ? f.wdate : (w.recDate || today()), 'date', 'max="' + today() + '"')) + '<button type="button" class="btn" data-a="weekSave">Save</button>';
   var pw = planItems(w.key, finAddDays(w.key, 6)).filter(function (x) { return x.fixed || monthlySecs().indexOf(x.sec) < 0; }), pt = 0, pn = 0;
   pw.forEach(function (x) { pt += x.amount; if (!x.req) pn += x.amount; });
-  h += '<div class="s num" id="week-money"><div>Planned from the budget: ' + money(pt) + (pn ? ' · not asked ' + money(pn) : '') + '</div>' + (w.car != null ? '<div>' + carText(w.car) + '</div>' : '') + '<div>Expected: ' + (w.exp != null ? money(w.exp) : w.ind != null ? money(w.ind) + ' (indicative)' : 'not written') + '</div><div>Received: ' + (w.onRec ? money(w.rec) + (w.recDate ? ' on ' + day(w.recDate) : '') : 'nothing yet') + '</div><div>Approved this week: ' + money(w.used) + '</div></div>';
+  h += '<div class="s num" id="week-money"><div>Planned from the budget: ' + money(pt) + (pn ? ' · not asked ' + money(pn) : '') + '</div>' + (w.car != null ? '<div>' + carText(w.car) + '</div>' : '') + '<div>Expected: ' + (w.exp != null ? money(w.exp) : w.ind != null ? money(w.ind) + ' (indicative)' : 'not written') + '</div><div>Received: ' + (w.onRec ? money(w.rec) + (w.recDate ? ' on ' + day(w.recDate) : '') : 'nothing yet') + '</div><div>Paid this week: ' + money(w.paid) + '</div><div>Still to pay this week: ' + money(w.due) + '</div></div>';
   if (w.set) h += '<div class="num b ' + (w.left >= 0 ? 'good' : 'bad') + '" style="font-size:18px">' + (w.left >= 0 ? 'Left: ' + money(w.left) : 'Short by ' + money(-w.left)) + '</div><div class="s m">' + w.onText + '</div>';
   else h += '<div class="s m">' + 'Money not written yet.' + '</div>';
   function left(c) { if (!w.set) return '<td>-</td>'; var n = w.left - c; return n >= 0 ? '<td>' + kw(n) + '</td>' : '<td class="short">short ' + kw(-n) + '</td>'; }
-  function row(label, c) { return '<tr><th scope="row" class="b">' + label + '</th><td>' + kw(c) + '</td>' + left(c) + '</tr>'; }
-  h += '<table class="plan" id="plan-prio"><caption>Waiting: ' + plural(d.n, 'request', 'requests') + ', in Kwacha</caption><thead><tr><th scope="col">If you approve</th><th scope="col">Asked</th><th scope="col">Then left</th></tr></thead><tbody>' +
-    row('P1', d.c1) + row('P1 + P2', d.c2) + row('P1 + P2 + P3', d.c3) + '</tbody></table>';
+  function row(label, c, dd) { return '<tr><th scope="row" class="b">' + label + '</th><td>' + kw(c) + '</td><td>' + kw(dd) + '</td>' + left(dd) + '</tr>'; }
+  h += '<table class="plan" id="plan-prio"><caption>Waiting: ' + plural(d.n, 'request', 'requests') + ', in Kwacha</caption><thead><tr><th scope="col">If you approve</th><th scope="col">Asked</th><th scope="col">To pay this week</th><th scope="col">Then left</th></tr></thead><tbody>' +
+    row('P1', d.c1, d.d1) + row('P1 + P2', d.c2, d.d2) + row('P1 + P2 + P3', d.c3, d.d3) + '</tbody></table>';
   if (d.rows.length) {
     h += '<button type="button" class="btn" style="margin-top:10px" data-a="wkLines" aria-expanded="' + (f.wkLines ? 'true' : 'false') + '">' + (f.wkLines ? 'Hide the budget lines' : 'Show by budget line') + '</button>';
     if (f.wkLines) {
@@ -404,7 +416,7 @@ function weekPlan() {
         h += '<tr><th scope="row">' + esc(x.name) + '</th><td>' + kw(x.P1) + '</td><td>' + kw(x.P1 + x.P2) + '</td><td>' + kw(x.P1 + x.P2 + x.P3) + '</td></tr>';
       });
       h += '</tbody><tfoot><tr><th scope="row">Total</th><td>' + kw(d.c1) + '</td><td>' + kw(d.c2) + '</td><td>' + kw(d.c3) + '</td></tr>' +
-        (w.set ? '<tr><th scope="row">Then left</th>' + left(d.c1) + left(d.c2) + left(d.c3) + '</tr>' : '') + '</tfoot></table>';
+        (w.set ? '<tr><th scope="row">Then left this week</th>' + left(d.d1) + left(d.d2) + left(d.d3) + '</tr>' : '') + '</tfoot></table>';
     }
   }
   var lw = weekDecided(finAddDays(w.key, -7));
@@ -505,9 +517,9 @@ function monthPlan(code, ym) {
   planItems(ym + '-01', ym + '-31').forEach(function (x) {
     if (x.sec !== code || x.fixed) return;
     var g = map[x.line];
-    if (!g) { g = map[x.line] = { line: x.line, sec: code, name: x.name, ym: ym, n: 0, each: x.amount, total: 0, open: 0, first: '', reqs: [], prio: x.prio }; out.push(g); }
+    if (!g) { g = map[x.line] = { line: x.line, sec: code, name: x.name, ym: ym, n: 0, each: x.amount, total: 0, open: 0, first: '', dates: [], reqs: [], prio: x.prio }; out.push(g); }
     g.n++; g.total = Math.round((g.total + x.amount) * 100) / 100;
-    if (x.req) { if (g.reqs.indexOf(x.req) < 0) g.reqs.push(x.req); } else { g.open = Math.round((g.open + x.amount) * 100) / 100; if (!g.first) g.first = x.date; }
+    if (x.req) { if (g.reqs.indexOf(x.req) < 0) g.reqs.push(x.req); } else { g.open = Math.round((g.open + x.amount) * 100) / 100; if (!g.first) g.first = x.date; g.dates.push(x.date); }
   });
   out.forEach(function (g) { g.asked = sumOf(g.reqs); });
   return out;
@@ -657,6 +669,10 @@ function reqCard(r, opt) {
   h += '<div class="row"><div class="b">' + esc(r.what) + '</div><div class="b num">' + money(r.amount) + '</div></div>';
   h += '<div class="s m">' + (opt.sec ? '' : esc(r.prio) + ' · ') + 'Needed ' + day(r.needed) + ' · ' + plural(r.notice, 'working day', 'working days') + ' notice · ' + payText(r) + '</div>';
   if (r.food) h += '<div class="s num">' + foodText(r) + '</div>';
+  var pdc = finPaid(r), npc = r.parts ? r.parts.length : 0;
+  if (npc > 1 && r.status !== 'Paid' && r.status !== 'Cancelled' && r.status !== 'Not approved') h += '<div class="s num">In ' + npc + ' parts, from ' + day(r.parts[0].date) + ' to ' + day(r.parts[npc - 1].date) + '</div>';
+  if (pdc > 0 && r.status === 'Approved') h += '<div class="s b num">Paid ' + money(pdc) + ' of ' + money(r.amount) + '</div>';
+  if (r.closed) h += '<div class="s num">Paid ' + money(pdc) + ' of ' + money(r.amount) + '. Closed.</div>';
   if (opt.budget) {
     h += '<div class="s b ' + (r.quoteFile ? 'm' : 'bad') + '">' + (r.quoteFile ? 'Quotation attached' : 'No quotation') + '</div>';
     h += r.items ? '<div class="s">' + r.items.map(function (it) { return esc(LINE[it.line] ? LINE[it.line].name : it.lineName || it.line) + ' ' + money(it.amount); }).join(' · ') + '</div>' : lineBox(r.line, r.amount, r.status === 'Waiting' || r.status === 'Next week', r.needed);
@@ -774,6 +790,7 @@ function scrNew() {
     h += field('Left in the store now, in ' + esc(f.funit), 'rq-fstock', input('rq-fstock', 'fstock', f.fstock, 'number', 'min="0" inputmode="decimal"'));
     h += '<div class="field"><div class="lab">Amount</div><div class="b num" id="rq-calc">' + (Number(f.amount) > 0 ? money(Number(f.amount)) : 'Write the quantity and the price.') + '</div>' + (f.planAmt ? '<div class="s m num">In the plan: ' + money(f.planAmt) + '</div>' : '') + '</div>';
   } else h += field(item ? 'Amount for ' + mName + ', in Kwacha' : 'Amount in Kwacha', 'rq-amount', input('rq-amount', 'amount', f.amount, 'number', 'min="0" inputmode="decimal" data-b="1" placeholder="Example: 1800"')) + (item && f.planAmt ? '<div class="s m num" style="margin-top:-8px;margin-bottom:12px">In the plan: ' + money(f.planAmt) + '</div>' : '');
+  if (item) { var gi = monthLine(f.section, f.line, f.month); if (gi && gi.dates.length > 1) h += '<div class="s m" id="rq-parts">Paid in ' + gi.dates.length + ' parts, from ' + day(gi.dates[0]) + ' to ' + day(gi.dates[gi.dates.length - 1]) + '.</div>'; }
   h += '<div id="linebox">' + lineBox(f.line, Number(f.amount) || 0, true, f.needed) + '</div>';
   h += '<div class="field"><div class="lab" id="rq-prio">Priority</div><div class="s m">P1 cannot wait. P2 important. P3 can wait.</div><div class="btns" role="group" aria-labelledby="rq-prio">' +
     ['P1', 'P2', 'P3'].map(function (p) { return '<button type="button" class="btn' + (f.prio === p ? ' on' : '') + '" aria-pressed="' + (f.prio === p) + '" data-a="setPrio" data-id="' + p + '">' + p + '</button>'; }).join('') + '</div></div>';
@@ -924,24 +941,36 @@ function scrMonth() {
   return h + '</main>';
 }
 function scrPay() {
-  var v = V(), w = weekInfo(), can = S.me.role === 'accountant';
-  var list = v.requests.filter(function (r) { return r.status === 'Approved'; }).sort(function (a, b) { return a.needed < b.needed ? -1 : 1; });
-  var paid = v.requests.filter(function (r) { return r.status === 'Paid' && r.paidAt && finWeekKey(finToday(r.paidAt)) === w.key; });
+  var v = V(), w = weekInfo(), can = S.me.role === 'accountant', end = finAddDays(w.key, 6);
+  var list = v.requests.filter(function (r) { return r.status === 'Approved'; }).map(function (r) { r._np = nextPart(r); return r; }).sort(function (a, b) { var x = a._np ? a._np.date : a.needed, y = b._np ? b._np.date : b.needed; return x < y ? -1 : x > y ? 1 : 0; });
+  var wp = weekPays(w.key);
   var h = '<main><h1>To pay</h1>' + weekPlan();
   if (!list.length) h += '<div class="s m">Nothing to pay.</div>';
-  else { var tp = sumOf(list), tc = sumOf(list.filter(function (r) { return r.pay === 'cash'; })); h += '<div class="card num" id="pay-split"><div class="b">To pay: ' + money(tp) + '</div><div>Bank or mobile money: ' + money(tp - tc) + '</div><div>Cash: ' + money(tc) + '</div></div>'; }
-  list.forEach(function (r) { h += reqCard(r, { sec: true, nopill: true, actions: '<div class="s b ' + (r.quoteFile ? 'm' : 'bad') + '">' + (r.quoteFile ? 'Quotation attached' : 'No quotation') + '</div>' + (can ? '<div class="btns"><button type="button" class="btn pri" data-a="paid" data-id="' + esc(r.id) + '">Paid</button><button type="button" class="btn" data-a="payOn" data-id="' + esc(r.id) + '">' + (r.payOn ? 'Change the pay date' : 'Set the pay date') + '</button></div>' : '') }); });
-  if (paid.length) { h += '<h2>Paid this week</h2>'; paid.forEach(function (r) { h += '<div class="card"><div class="row"><div class="b">' + esc(r.what) + '</div><div class="b num">' + money(r.amount) + '</div></div><div class="row" style="align-items:center"><div class="s m">' + esc(secName(r.section)) + ' · ' + payText(r) + '</div>' + (can ? '<button type="button" class="btn" data-a="unpay" data-id="' + esc(r.id) + '">Undo</button>' : '') + '</div></div>'; }); }
+  else {
+    var tn = 0, tc = 0, tl = 0;
+    list.forEach(function (r) { var dn = dueBy(r, end); tn += dn; if (r.pay === 'cash') tc += dn; tl += restOf(r) - dn; });
+    h += '<div class="card num" id="pay-split"><div class="b">To pay this week: ' + money(tn) + '</div><div>Bank or mobile money: ' + money(tn - tc) + '</div><div>Cash: ' + money(tc) + '</div><div>Later: ' + money(tl) + '</div></div>';
+  }
+  list.forEach(function (r) {
+    var pd = finPaid(r), rest = restOf(r), dn = dueBy(r, end), np = r._np, amt = dn > 0 ? Math.min(dn, rest) : np ? np.amount : rest, whole = !pd && amt >= rest - 0.005;
+    var info = dn > 0 ? '<div class="s b num">To pay this week: ' + money(dn) + '</div>' : np ? '<div class="s num">Next: ' + money(np.amount) + ' on ' + day(np.date) + '</div>' : '';
+    h += reqCard(r, { sec: true, nopill: true, actions: '<div class="s b ' + (r.quoteFile ? 'm' : 'bad') + '">' + (r.quoteFile ? 'Quotation attached' : 'No quotation') + '</div>' + info +
+      (can ? '<div class="btns"><button type="button" class="btn pri" data-a="paid" data-id="' + esc(r.id) + '" data-amt="' + amt + '">' + (whole ? 'Paid' : 'Pay ' + money(amt)) + '</button><button type="button" class="btn" data-a="payPart" data-id="' + esc(r.id) + '">Other amount</button></div><button type="button" class="btn" data-a="payOn" data-id="' + esc(r.id) + '">' + (r.payOn ? 'Change the pay date' : 'Set the pay date') + '</button>' : '') });
+  });
+  if (wp.length) {
+    h += '<h2>Paid this week</h2>';
+    wp.forEach(function (x) { var r = x.r; h += '<div class="card"><div class="row"><div class="b">' + esc(r.what) + '</div><div class="b num">' + money(x.amount) + '</div></div>' + (x.amount < r.amount - 0.005 ? '<div class="s num">Paid ' + money(finPaid(r)) + ' of ' + money(r.amount) + '</div>' : '') + '<div class="row" style="align-items:center"><div class="s m">' + esc(secName(r.section)) + ' · ' + (x.pay === 'cash' ? 'Cash' : 'Bank or mobile money') + '</div>' + (can && x.last ? '<button type="button" class="btn" data-a="unpay" data-id="' + esc(r.id) + '">Undo</button>' : '') + '</div></div>'; });
+  }
   return h + '</main>';
 }
 function scrWeek() {
-  var now = finWeekKey(today()), k = S.ui.wk && S.ui.wk <= now ? S.ui.wk : finAddDays(now, -7), w = weekInfo(k), d = weekDecided(k), paid = sumOf(d.paid), cash = sumOf(d.paid.filter(function (r) { return r.pay === 'cash'; }));
+  var now = finWeekKey(today()), k = S.ui.wk && S.ui.wk <= now ? S.ui.wk : finAddDays(now, -7), w = weekInfo(k), d = weekDecided(k), wp = weekPays(k), paid = sumOf(wp), cash = sumOf(wp.filter(function (x) { return x.pay === 'cash'; }));
   var end = Math.round(((w.car || 0) + (w.rec || 0) - w.used) * 100) / 100;
   var h = '<main><div class="row" style="align-items:center"><button type="button" class="btn" data-a="weekMove" data-id="-1" aria-label="Week before">&lsaquo;</button><h1>Week of ' + day(k) + '</h1><button type="button" class="btn" data-a="weekMove" data-id="1" aria-label="Week after"' + (k >= now ? ' disabled' : '') + '>&rsaquo;</button></div>';
-  h += '<div class="card num" id="week-check">' + (w.car != null ? '<div>' + carText(w.car) + '</div>' : '') + '<div>Received: ' + (w.onRec ? money(w.rec) + (w.recDate ? ' on ' + day(w.recDate) : '') : 'nothing written') + '</div><div>Approved: ' + money(w.used) + '</div>' +
-    (w.onRec || w.car != null ? '<div class="b ' + (end >= 0 ? 'good' : 'bad') + '">' + (end >= 0 ? 'Left at the end: ' + money(end) : 'Short at the end by ' + money(-end)) + '</div>' : '') +
-    '<div>Paid: ' + money(paid) + (paid ? ' · bank or mobile money ' + money(paid - cash) + ' · cash ' + money(cash) : '') + '</div></div>';
+  h += '<div class="card num" id="week-check">' + (w.car != null ? '<div>' + carText(w.car) + '</div>' : '') + '<div>Received: ' + (w.onRec ? money(w.rec) + (w.recDate ? ' on ' + day(w.recDate) : '') : 'nothing written') + '</div><div>Paid: ' + money(paid) + (paid ? ' · bank or mobile money ' + money(paid - cash) + ' · cash ' + money(cash) : '') + '</div>' + (w.due ? '<div>Still to pay this week: ' + money(w.due) + '</div>' : '') +
+    (w.onRec || w.car != null ? '<div class="b ' + (end >= 0 ? 'good' : 'bad') + '">' + (end >= 0 ? (k < now ? 'Left at the end: ' : 'Left: ') + money(end) : 'Short by ' + money(-end)) + '</div>' : '') + '</div>';
   if (S.me.role === 'accountant' || S.me.role === 'director' || S.me.admin) h += '<button type="button" class="btn" data-a="wkMoney" data-id="' + esc(k) + '">Change the money received</button>';
+  if (wp.length) { h += '<h2>Paid · ' + wp.length + ' · ' + money(paid) + '</h2><div class="card">'; wp.forEach(function (x) { h += '<div class="prow"><div><div>' + esc(x.r.what) + '</div><div class="s m">' + esc(secName(x.r.section)) + ' · ' + day(x.date) + ' · ' + (x.pay === 'cash' ? 'cash' : 'bank or mobile money') + '</div></div><div class="b num">' + money(x.amount) + '</div></div>'; }); h += '</div>'; }
   [['Not approved', d.no], ['Approved', d.ok], ['Moved to next week', d.later], ['Sent back to revise', d.rev]].forEach(function (g, i) {
     if (i && !g[1].length) return;
     h += '<h2>' + g[0] + ' · ' + g[1].length + (g[1].length ? ' · ' + money(sumOf(g[1])) : '') + '</h2>';
@@ -1021,7 +1050,9 @@ function modal() {
     if (r.revised) hist += '<div class="s">Sent again after revision, ' + when(r.revisedAt) + (r.askedNote ? '. The Director had asked: ' + esc(r.askedNote) : '') + '</div>';
     if (r.decidedAt) hist += '<div class="s">' + (r.status === 'Paid' || r.status === 'Approved' ? 'Approved' : r.status === 'Not approved' ? 'Not approved' : r.status === 'To revise' ? 'Sent back to revise' : 'Moved to next week') + ' by ' + esc(r.decidedBy) + ', ' + when(r.decidedAt) + (r.note ? ': ' + esc(r.note) : '') + '</div>';
     if (r.status === 'Approved' && r.payOn) hist += '<div class="s b good">Will be paid on ' + day(r.payOn) + '</div>';
-    if (r.paidAt) hist += '<div class="s">Paid by ' + esc(r.paidBy) + ', ' + when(r.paidAt) + '</div>';
+    if (r.parts && r.parts.length > 1) hist += '<div class="s num">Needed in ' + r.parts.length + ' parts: ' + r.parts.map(function (p) { return day(p.date) + ' ' + money(p.amount); }).join(' · ') + '</div>';
+    paysOf(r).forEach(function (p) { hist += '<div class="s num">Paid ' + money(p.amount) + ' by ' + esc(p.by) + ', ' + day(p.date) + ', ' + (p.pay === 'cash' ? 'cash' : 'bank or mobile money') + '</div>'; });
+    if (r.closed) hist += '<div class="s num">Closed. Not paid: ' + money(restOf(r)) + '</div>';
     if (r.receipt) hist += '<div class="s">Receipt added by ' + esc(r.receiptBy) + ', ' + when(r.receiptAt) + (r.spent != null ? ' · spent ' + money(r.spent) + (r.amount - r.spent > 0 ? ' · not spent ' + money(Math.round((r.amount - r.spent) * 100) / 100) : '') : '') + '</div>';
     if (hist) h += '<div class="card">' + hist + '</div>';
     if (x.img) h += '<img class="photo" alt="Photo" src="' + x.img + '" data-a="viewOpen"><button type="button" class="btn" data-a="viewOpen">Open the photo bigger</button>';
@@ -1055,6 +1086,13 @@ function modal() {
       '<div class="field"><label for="pl-food">Food: people, quantity, price</label><select class="in" id="pl-food" data-m="food">' + options([['0', 'No'], ['1', 'Yes']], m.food) + '</select></div>' +
       '<div class="field"><label for="pl-prio">Priority</label><select class="in" id="pl-prio" data-m="prio">' + options([['P1', 'P1'], ['P2', 'P2'], ['P3', 'P3']], m.prio) + '</select></div>' + err +
       '<div class="btns"><button type="button" class="btn pri" data-a="planSave">Save</button>' + (x.own ? '<button type="button" class="btn" data-a="planReset">Back to the budget</button>' : '') + close + '</div>';
+  }
+  if (x.type === 'paypart') {
+    var pq = finFind(V().requests, x.id);
+    h += '<h1>Pay</h1>' + (pq ? '<div class="s m num">' + reqNo(pq) + ' · ' + esc(pq.what) + '</div><div class="num">Paid ' + money(finPaid(pq)) + ' of ' + money(pq.amount) + ' · left ' + money(restOf(pq)) + '</div>' : '') +
+      mField('Amount paid now, in Kwacha', 'pp-amount', 'amount', 'number', 'min="0" inputmode="decimal"') +
+      '<div class="checks"><label><input type="checkbox" id="pp-close" data-m="close"' + (m.close ? ' checked' : '') + '>Nothing more to pay on this request</label></div>' + err +
+      '<div class="btns"><button type="button" class="btn pri" data-a="payPartSave">Save</button>' + close + '</div>';
   }
   if (x.type === 'wkmoney') {
     h += '<h1>Week of ' + day(x.id) + '</h1>' + mField('Money received, in Kwacha', 'wm-amount', 'amount', 'number', 'min="0" inputmode="decimal"') + mField('Date received', 'wm-date', 'date', 'date', 'max="' + today() + '"') + err +
@@ -1249,7 +1287,7 @@ function demoDb() {
   rq('FOO', 'd-head', 'Training bibs, 40', 3200, 'FOO-23', 'P3', -1, 14, 'bank', 'To revise'); db.requests[db.requests.length - 1].note = 'Too many. Ask for 20 and add the quotation.';
   rq('FOO', 'd-head', 'Cash allowance, referees', 900, 'FOO-07', 'P1', -9, -8, 'cash', 'Paid', { reason: 'Other reason', why: 'Tournament confirmed late' });
   rq('CAR', 'd-car', 'Varnish, 1 litre', 550, 'CAR-02', 'P2', -6, -5, 'cash', 'Paid', { receipt: true });
-  rq('CAN', 'd-acc', 'Mealie meal, two weeks', 5250, 'CAN-01', 'P1', -1, 7, 'bank', 'Waiting'); db.requests[db.requests.length - 1].food = { people: 150, qty: 150, unit: 'kg', price: 35, stock: 20 };
+  rq('CAN', 'd-acc', 'Mealie meal, two weeks', 5250, 'CAN-01', 'P1', -1, 7, 'bank', 'Waiting'); db.requests[db.requests.length - 1].food = { people: 150, qty: 150, unit: 'kg', price: 35, stock: 20 }; db.requests[db.requests.length - 1].parts = [{ date: finAddDays(t, 7), amount: 2625 }, { date: finAddDays(t, 14), amount: 2625 }];
   rq('CAR', 'd-car', 'Electric drill', 4200, 'none', 'P3', -10, -3, 'bank', 'Not approved'); db.requests[db.requests.length - 1].note = 'Not in the budget. Ask again in January.'; db.requests[db.requests.length - 1].decidedAt = new Date(Date.now() - 7 * 86400000).toISOString();
   db.settings.tranche = { w1: 120000, w2: 90000, last: 150000 };
   var dl = function (id, sec, what, amount, line, off, rep) { db.rev++; db.deadlines.push({ id: id, section: sec, what: what, amount: amount, line: line, lineName: LINE[line] ? LINE[line].name : '', date: finAddDays(t, off), repeat: rep ? 'monthly' : '', pay: 'bank', asked: '', deleted: false, rev: db.rev }); };
@@ -1313,10 +1351,10 @@ function saveFile(name, blob) {
     window.claude.use('downloads').then(function (d) { if (!d) return plain(); return d.save({ filename: name, data: blob }); }).catch(function (e) { if (!e || e.code !== 'declined') { S.notices.push('The file could not be saved here.'); render(); } });
   } else plain();
 }
-function reqHead() { return ['No', 'Asked on', 'Section', 'What', 'Amount (K)', 'Priority', 'Needed on', 'Notice (working days)', 'Emergency', 'Reason', 'Pay by', 'Status', 'Asked by', 'Budget line code', 'Budget line', 'Activity', 'Budget of the line (K)', 'Approved on the line (K)', 'Decided by', 'Decided on', 'Note of the Director', 'Paid by', 'Paid on', 'Receipt', 'Quotation', 'Will be paid on', 'Sent again (times)', 'People', 'Quantity', 'Unit', 'Price per unit (K)', 'Left in the store', 'Spent (K)', 'Not spent (K)']; }
+function reqHead() { return ['No', 'Asked on', 'Section', 'What', 'Amount (K)', 'Priority', 'Needed on', 'Notice (working days)', 'Emergency', 'Reason', 'Pay by', 'Status', 'Asked by', 'Budget line code', 'Budget line', 'Activity', 'Budget of the line (K)', 'Approved on the line (K)', 'Decided by', 'Decided on', 'Note of the Director', 'Paid by', 'Paid on', 'Receipt', 'Quotation', 'Will be paid on', 'Sent again (times)', 'People', 'Quantity', 'Unit', 'Price per unit (K)', 'Left in the store', 'Spent (K)', 'Not spent (K)', 'Paid so far (K)', 'Parts']; }
 function reqRow(r) {
   var L = LINE[r.line], u = L ? lineUse(r.line) : null;
-  return [r.no || 'Not sent yet', r.created, secName(r.section), r.what, r.amount, r.prio, r.needed, r.notice, r.emergency ? 'Emergency' : '', r.emergency ? r.reason + ': ' + r.why : '', payText(r), (PILL[r.status] || PILL.Waiting)[0], r.byName, r.line === 'none' ? '' : r.line, r.lineName || (r.line === 'none' ? 'Not in the budget' : ''), L ? L.act : '', L ? L.total : '', u ? u.used : '', r.decidedBy, r.decidedAt ? finToday(r.decidedAt) : '', r.note, r.paidBy, r.paidAt ? finToday(r.paidAt) : '', r.receipt ? 'Yes' : (r.status === 'Paid' ? 'Missing' : ''), r.quoteFile ? 'Yes' : 'No', r.payOn || '', r.revised || '', r.food ? r.food.people : '', r.food ? r.food.qty : '', r.food ? r.food.unit : '', r.food ? r.food.price : '', r.food ? r.food.stock : '', r.spent != null ? r.spent : '', r.spent != null ? Math.round((r.amount - r.spent) * 100) / 100 : ''];
+  return [r.no || 'Not sent yet', r.created, secName(r.section), r.what, r.amount, r.prio, r.needed, r.notice, r.emergency ? 'Emergency' : '', r.emergency ? r.reason + ': ' + r.why : '', payText(r), (PILL[r.status] || PILL.Waiting)[0], r.byName, r.line === 'none' ? '' : r.line, r.lineName || (r.line === 'none' ? 'Not in the budget' : ''), L ? L.act : '', L ? L.total : '', u ? u.used : '', r.decidedBy, r.decidedAt ? finToday(r.decidedAt) : '', r.note, r.paidBy, r.paidAt ? finToday(r.paidAt) : '', r.receipt ? 'Yes' : (r.status === 'Paid' ? 'Missing' : ''), r.quoteFile ? 'Yes' : 'No', r.payOn || '', r.revised || '', r.food ? r.food.people : '', r.food ? r.food.qty : '', r.food ? r.food.unit : '', r.food ? r.food.price : '', r.food ? r.food.stock : '', r.spent != null ? r.spent : '', r.spent != null ? Math.round((r.amount - r.spent) * 100) / 100 : '', finPaid(r), r.parts ? r.parts.length : 1];
 }
 function dlHead() { return ['Section', 'What', 'Amount (K)', 'Needed on', 'Last day to ask', 'Late', 'Every month', 'Pay by', 'Budget line code', 'Budget line']; }
 function dlRow(x) { var d = deadlineView(x); return [secName(x.section), x.what, x.amount, x.date, d.askBy, d.late ? 'Late' : '', x.repeat ? 'Yes' : '', x.pay === 'cash' ? 'Cash' : 'Bank or mobile money', x.line === 'none' ? '' : (x.line || ''), x.lineName || '']; }
@@ -1329,13 +1367,14 @@ function exportSheets() {
   function dl(name, list) { out.push({ name: name, head: dlHead(), rows: list.sort(function (a, b) { return a.date < b.date ? -1 : 1; }).map(dlRow) }); }
   function weekSheet() {
     var d = weekPlanData(), lf = function (c) { return w.set ? w.left - c : ''; };
-    out.push({ name: 'Money this week', head: ['Item', 'Value'], rows: [['Week of', w.key], ['Money expected (K)', w.exp != null ? w.exp : 'Not written'], ['Money received (K)', w.onRec ? w.rec : 'Nothing yet'], ['Date received', w.recDate || ''], ['Approved this week (K)', w.used], ['Left from the weeks before (K)', w.car != null ? w.car : ''], ['Indicative amount (K)', w.ind != null ? w.ind : ''], ['Left (K), counted on the money ' + w.basis, w.set ? w.left : ''],
-      ['Waiting, P1 (K)', d.c1], ['Waiting, P1 + P2 (K)', d.c2], ['Waiting, P1 + P2 + P3 (K)', d.c3], ['Left if P1 is approved (K)', lf(d.c1)], ['Left if P1 + P2 are approved (K)', lf(d.c2)], ['Left if all is approved (K)', lf(d.c3)]] });
+    out.push({ name: 'Money this week', head: ['Item', 'Value'], rows: [['Week of', w.key], ['Money expected (K)', w.exp != null ? w.exp : 'Not written'], ['Money received (K)', w.onRec ? w.rec : 'Nothing yet'], ['Date received', w.recDate || ''], ['Paid this week (K)', w.paid], ['Still to pay this week (K)', w.due], ['Left from the weeks before (K)', w.car != null ? w.car : ''], ['Indicative amount (K)', w.ind != null ? w.ind : ''], ['Left (K), counted on the money ' + w.basis, w.set ? w.left : ''],
+      ['Waiting, P1 (K)', d.c1], ['Waiting, P1 + P2 (K)', d.c2], ['Waiting, P1 + P2 + P3 (K)', d.c3], ['To pay this week if P1 is approved (K)', d.d1], ['To pay this week if P1 + P2 are approved (K)', d.d2], ['To pay this week if all is approved (K)', d.d3], ['Left if P1 is approved (K)', lf(d.d1)], ['Left if P1 + P2 are approved (K)', lf(d.d2)], ['Left if all is approved (K)', lf(d.d3)]] });
     out.push({ name: 'By budget line', head: ['Section', 'Budget line', 'Line name', 'P1 (K)', 'P2 (K)', 'P3 (K)', 'P1 + P2 (K)', 'P1 + P2 + P3 (K)'], rows: d.rows.map(function (x) { return [secName(x.sec), x.line, x.name, x.P1, x.P2, x.P3, x.P1 + x.P2, x.P1 + x.P2 + x.P3]; }) });
   }
   if (t === 'week') {
-    var k2 = S.ui.wk && S.ui.wk <= w.key ? S.ui.wk : finAddDays(w.key, -7), w2 = weekInfo(k2), d2 = weekDecided(k2), p2 = sumOf(d2.paid), c2 = sumOf(d2.paid.filter(function (r) { return r.pay === 'cash'; }));
-    out.push({ name: 'Week', head: ['Item', 'Value'], rows: [['Week of', k2], ['Left from the weeks before (K)', w2.car != null ? w2.car : ''], ['Money received (K)', w2.onRec ? w2.rec : 'Nothing written'], ['Date received', w2.recDate || ''], ['Approved (K)', w2.used], ['Left at the end (K)', w2.onRec || w2.car != null ? Math.round(((w2.car || 0) + (w2.rec || 0) - w2.used) * 100) / 100 : ''], ['Paid (K)', p2], ['Paid by bank or mobile money (K)', p2 - c2], ['Paid in cash (K)', c2]] });
+    var k2 = S.ui.wk && S.ui.wk <= w.key ? S.ui.wk : finAddDays(w.key, -7), w2 = weekInfo(k2), d2 = weekDecided(k2), wp2 = weekPays(k2), p2 = sumOf(wp2), c2 = sumOf(wp2.filter(function (x) { return x.pay === 'cash'; }));
+    out.push({ name: 'Week', head: ['Item', 'Value'], rows: [['Week of', k2], ['Left from the weeks before (K)', w2.car != null ? w2.car : ''], ['Money received (K)', w2.onRec ? w2.rec : 'Nothing written'], ['Date received', w2.recDate || ''], ['Approved (K)', sumOf(d2.ok)], ['Left at the end (K)', w2.onRec || w2.car != null ? Math.round(((w2.car || 0) + (w2.rec || 0) - w2.used) * 100) / 100 : ''], ['Paid (K)', p2], ['Paid by bank or mobile money (K)', p2 - c2], ['Paid in cash (K)', c2]] });
+    out.push({ name: 'Paid', head: ['Date', 'No', 'Section', 'What', 'Paid (K)', 'Of (K)', 'Paid by'], rows: wp2.map(function (x) { return [x.date, x.r.no || '', secName(x.r.section), x.r.what, x.amount, x.r.amount, x.pay === 'cash' ? 'Cash' : 'Bank or mobile money']; }) });
     rq('Not approved', d2.no); rq('Approved', d2.ok); rq('Moved to next week', d2.later); rq('Sent back to revise', d2.rev);
   } else if (t === 'mine') rq('My open requests', myOpen());
   else if (t === 'over') {
@@ -1363,7 +1402,7 @@ function exportSheets() {
     weekSheet();
   } else if (t === 'pay') {
     rq('To pay', v.requests.filter(function (r) { return r.status === 'Approved'; }).sort(function (a, b) { return a.needed < b.needed ? -1 : 1; }));
-    rq('Paid this week', v.requests.filter(function (r) { return r.status === 'Paid' && r.paidAt && finWeekKey(finToday(r.paidAt)) === w.key; }));
+    out.push({ name: 'Paid this week', head: ['Date', 'No', 'Section', 'What', 'Paid (K)', 'Of (K)', 'Paid by'], rows: weekPays(w.key).map(function (x) { return [x.date, x.r.no || '', secName(x.r.section), x.r.what, x.amount, x.r.amount, x.pay === 'cash' ? 'Cash' : 'Bank or mobile money']; }) });
     weekSheet();
   } else if (t === 'rec') rq('Receipts missing', v.requests.filter(function (r) { return r.status === 'Paid' && !r.receipt; }));
   else if (t === 'all') rq('Requests', v.requests.filter(function (r) { return !notMine(r) && (!f.fStatus || r.status === f.fStatus) && (!f.fSec || r.section === f.fSec); }).sort(byNew));
@@ -1451,13 +1490,16 @@ var H = {
     if (!f.section) miss.push('the section'); if (!String(f.what || '').trim()) miss.push('what you need');
     if (isF) { if (!(Number(f.fpeople) >= 1)) miss.push('the people'); if (!(Number(f.fqty) > 0)) miss.push('the quantity'); if (!(Number(f.fprice) > 0)) miss.push('the price'); if (f.fstock === '' || f.fstock == null || !(Number(f.fstock) >= 0)) miss.push('what is left in the store'); }
     else if (!(amount > 0)) miss.push('the amount');
+    var parts = null, ptEd = f.editId ? finFind(V().requests, f.editId) : null;
+    if (isItemForm()) { var gp = monthLine(f.section, f.line, f.month); if (gp && gp.dates.length > 1 && amount > 0) parts = splitParts(amount, gp.dates); }
+    else if (ptEd && ptEd.parts && ptEd.parts.length > 1 && amount > 0) parts = splitParts(amount, ptEd.parts.map(function (p) { return p.date; }));
     var fd = isF ? { people: Number(f.fpeople), qty: Number(f.fqty), unit: f.funit || 'kg', price: Number(f.fprice), stock: Number(f.fstock) } : null;
     if (!f.line) miss.push('the budget line'); if (!f.prio) miss.push('the priority'); if (!finIsDate(f.needed)) miss.push('the date');
     if (short && !f.reason) miss.push('why it is an Emergency'); if (short && !String(f.why || '').trim()) miss.push('a few words to explain');
     if (miss.length) { S.ui.err = 'Still missing: ' + miss.join(', ') + '.'; return render(); }
     var lname = f.line === 'none' ? 'Not in the budget' : (LINE[f.line] ? LINE[f.line].name : ''), again = !!f.editId;
-    var res = again ? act('req_edit', { id: f.editId, what: f.what, amount: amount, line: f.line, lineName: lname, prio: f.prio, needed: f.needed, pay: f.pay, food: fd, reason: f.reason || '', why: f.why || '', photo: f.photo || null })
-      : act('req_new', { id: uid(), section: f.section, what: f.what, amount: amount, line: f.line, lineName: lname, prio: f.prio, needed: f.needed, pay: f.pay, food: fd, reason: f.reason || '', why: f.why || '', deadline: f.deadline || '', plan: f.plan || '', photo: f.photo || null, created: today() });
+    var res = again ? act('req_edit', { id: f.editId, what: f.what, amount: amount, line: f.line, lineName: lname, prio: f.prio, needed: f.needed, pay: f.pay, food: fd, parts: parts, reason: f.reason || '', why: f.why || '', photo: f.photo || null })
+      : act('req_new', { id: uid(), section: f.section, what: f.what, amount: amount, line: f.line, lineName: lname, prio: f.prio, needed: f.needed, pay: f.pay, food: fd, parts: parts, reason: f.reason || '', why: f.why || '', deadline: f.deadline || '', plan: f.plan || '', photo: f.photo || null, created: today() });
     if (!res.ok) { S.ui.err = errText(res.error); return render(); }
     S.ui.form = {};
     go('mine'); S.ui.msg = again ? 'Sent again to the Director.' : 'Sent to the Director.'; render();
@@ -1562,7 +1604,13 @@ var H = {
   reviseCancel: function () { S.ui.form = {}; go('mine'); },
   decideSave: function () { var x = S.ui.modal; if (x.status === 'To revise' && !String(S.ui.m.note || '').trim()) { S.ui.merr = ERR.note; return render(); } var r = act('decide', { id: x.id, status: x.status, note: S.ui.m.note || '' }); if (!r.ok) { S.ui.merr = errText(r.error); } else S.ui.modal = null; render(); },
   undo: function (el) { var r = act('decide', { id: el.dataset.id, status: 'Waiting', note: '' }); if (!r.ok) S.notices.push(errText(r.error)); render(); },
-  paid: function (el) { var r = act('pay', { id: el.dataset.id }); if (!r.ok) S.notices.push(errText(r.error)); render(); },
+  paid: function (el) { var r = act('pay', { id: el.dataset.id, amount: el.dataset.amt ? Number(el.dataset.amt) : null }); if (!r.ok) S.notices.push(errText(r.error)); S.ui.keepScroll = true; render(); },
+  payPart: function (el) { var r = finFind(V().requests, el.dataset.id); if (!r) return; var np = nextPart(r), dn = dueBy(r, finAddDays(finWeekKey(today()), 6)); openModal({ type: 'paypart', id: r.id }, { amount: String(dn > 0 ? Math.min(dn, restOf(r)) : np ? np.amount : restOf(r)), close: false }); },
+  payPartSave: function () {
+    var x = S.ui.modal, m = S.ui.m, a = m.amount === '' || m.amount == null ? 0 : Number(m.amount);
+    if (!(a >= 0) || (!(a > 0) && !m.close)) { S.ui.merr = 'Write the amount.'; return render(); }
+    var r = act('pay', { id: x.id, amount: a, close: !!m.close }); if (!r.ok) S.ui.merr = errText(r.error); else S.ui.modal = null; S.ui.keepScroll = true; render();
+  },
   unpay: function (el) { var r = act('unpay', { id: el.dataset.id }); if (!r.ok) S.notices.push(errText(r.error)); render(); },
   wkLines: function () { S.ui.form.wkLines = !S.ui.form.wkLines; render(); },
   weekSave: function () {
