@@ -240,6 +240,15 @@ function finApply(db, u, op, nowIso, store, info) {
       bump(s); audit('Indicative money', d.slot + ' ' + (s.tranche[d.slot] != null ? 'K' + s.tranche[d.slot] : 'removed'));
       return { ok: true };
     }
+    /* one number for each month: the money expected in the month */
+    if (d.kind === 'month') {
+      if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(String(d.month))) return fail('fields');
+      if (!s.monthExp) s.monthExp = {};
+      if (d.amount === null || d.amount === '') delete s.monthExp[d.month];
+      else { var ma = Number(d.amount); if (!(ma >= 0) || ma > 1000000000) return fail('fields'); s.monthExp[d.month] = ma; }
+      bump(s); audit('Money for the month', d.month + ' ' + (s.monthExp[d.month] != null ? 'expected K' + s.monthExp[d.month] : 'removed'));
+      return { ok: true };
+    }
     if (!finIsDate(d.week)) return fail('fields');
     var wk = finWeekKey(d.week), kind = d.kind === 'expected' ? 'expected' : 'received';
     if (!s.weeksExp) s.weeksExp = {};

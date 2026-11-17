@@ -50,6 +50,7 @@ main{flex:1 1 auto;padding:16px 16px 136px;display:flex;flex-direction:column;ga
 .btn.full{width:100%}
 .btns{display:flex;gap:8px}.btns>*{flex:1 1 0}
 .field{display:flex;flex-direction:column;gap:6px}
+fieldset.tr{border:1px solid var(--line);border-radius:10px;padding:8px 10px;margin:0;min-width:0}fieldset.tr legend{font-weight:700;padding:0 4px}.two{display:flex;gap:8px}.two>*{flex:1 1 0;min-width:0}.two .field label{font-weight:400;font-size:14px}
 .field label,.lab{font-weight:700}
 .in{width:100%;min-height:48px;padding:0 12px;border:2px solid var(--edge);border-radius:8px;background:#fff}
 textarea.in{padding:10px 12px;min-height:80px}
@@ -130,7 +131,7 @@ img.photo{max-width:100%;border-radius:8px;border:1px solid var(--line)}
 <script src="core.js"></script>
 <script>
 'use strict';
-var FIN_VERSION = 'alpha 0.13';
+var FIN_VERSION = 'alpha 0.14';
 
 /* ================= small tools ================= */
 function esc(s) { return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]; }); }
@@ -348,6 +349,18 @@ function carried(wk) {
   v.requests.forEach(function (r) { paysOf(r).forEach(function (p) { var k = finWeekKey(p.date); if (k >= keys[0] && k < wk) sum -= p.amount; }); });
   return Math.round(sum * 100) / 100;
 }
+/* the money of a month: what is expected, and each time money was received, with its day */
+function monthMoney(ym) {
+  var s = V().settings, out = [], sum = 0, exp = (s.monthExp || {})[ym], tr = s.tranche || {}, ind = null;
+  Object.keys(s.weeks || {}).forEach(function (k) { var d = (s.weeksDate || {})[k] || k; if (d.slice(0, 7) === ym) out.push({ wk: k, amount: s.weeks[k], date: d }); });
+  out.sort(function (a, b) { return a.date < b.date ? -1 : 1; });
+  out.forEach(function (x) { sum += x.amount; });
+  Object.keys(TR_DAYS).forEach(function (k) { if (tr[k] != null) ind = (ind || 0) + tr[k]; });
+  var base = exp != null ? exp : ind;
+  return { ym: ym, list: out, rec: Math.round(sum * 100) / 100, exp: exp != null ? exp : null, ind: ind, toCome: base != null ? Math.max(0, Math.round((base - sum) * 100) / 100) : null };
+}
+/* the requests still to decide that were asked before this week */
+function waitingOld() { var wk = finWeekKey(today()); return weekWaiting().filter(function (r) { return r.status === 'Next week' || String(r.created) < wk; }); }
 function carText(n) { return n >= 0 ? 'Left from before: ' + money(n) : 'Short from before: ' + money(-n); }
 function sumOf(list) { return list.reduce(function (n, r) { return n + r.amount; }, 0); }
 function weekInfo(k) {
@@ -357,11 +370,13 @@ function weekInfo(k) {
   if (wk >= now) v.requests.forEach(function (r) { if (r.status === 'Approved') due += dueBy(r, end); });
   paid = Math.round(paid * 100) / 100; due = Math.round(due * 100) / 100; var used = paid + due;
   /* what is left is counted on the money received; before it arrives, on the money expected, or on the indicative amount */
-  var ind = exp == null ? indicative(wk) : null, car = carried(wk);
-  var onRec = rec != null, set = onRec || exp != null || ind != null || car != null, base = onRec ? rec : (exp != null ? exp : (ind || 0));
-  return { key: wk, set: set, money: base, used: used, paid: paid, due: due, left: Math.round(((car || 0) + base - used) * 100) / 100, rec: rec, exp: exp, ind: ind, car: car, recDate: (s.weeksDate || {})[wk] || '', onRec: onRec,
-    basis: onRec ? 'received' : exp != null ? 'expected' : ind != null ? 'indicative' : 'received',
-    onText: onRec ? 'On the money received this week.' : exp != null ? 'On the money expected this week.' : ind != null ? 'On the indicative amount for this week.' : 'On the money left from before.' };
+  var ind = exp == null ? indicative(wk) : null, car = carried(wk), onRec = rec != null, mex = null;
+  /* this week, with nothing else written: the money of the month that has still to come */
+  if (!onRec && exp == null && ind == null && wk === now) { var mmx = monthMoney(today().slice(0, 7)); if (mmx.exp != null) mex = mmx.toCome; }
+  var set = onRec || exp != null || ind != null || car != null || mex != null, base = onRec ? rec : exp != null ? exp : ind != null ? ind : (mex || 0);
+  return { key: wk, set: set, money: base, used: used, paid: paid, due: due, left: Math.round(((car || 0) + base - used) * 100) / 100, rec: rec, exp: exp, ind: ind, mex: mex, car: car, recDate: (s.weeksDate || {})[wk] || '', onRec: onRec,
+    basis: onRec ? 'received' : exp != null ? 'expected' : ind != null ? 'indicative' : mex != null ? 'still to come this month' : 'received',
+    onText: onRec ? 'On the money received this week.' : exp != null ? 'On the money expected this week.' : ind != null ? 'On the indicative amount for this week.' : mex != null ? 'On the money still to come this month.' : 'On the money left from before.' };
 }
 /* what was decided and paid in one week */
 function weekDecided(k) {
@@ -393,13 +408,24 @@ function weekPlanData() {
 function kw(n) { return (Math.round(Number(n) * 100) / 100).toLocaleString('en-US'); }
 function weekPlan() {
   var d = weekPlanData(), w = d.w, f = S.ui.form, canMoney = S.me.role === 'accountant' || S.me.role === 'director' || !!S.me.admin;
-  var h = '<div class="card"><div class="b">Week of ' + day(w.key) + '</div>';
-  if (canMoney) h += field('Money expected this week, in Kwacha', 'acc-exp', input('acc-exp', 'wexp', f.wexp != null ? f.wexp : (w.exp != null ? w.exp : ''), 'number', 'min="0" inputmode="decimal"')) +
-    field('Money received, in Kwacha', 'acc-week', input('acc-week', 'week', f.week != null ? f.week : (w.rec != null ? w.rec : ''), 'number', 'min="0" inputmode="decimal"')) +
-    field('Date received', 'acc-date', input('acc-date', 'wdate', f.wdate != null ? f.wdate : (w.recDate || today()), 'date', 'max="' + today() + '"')) + '<button type="button" class="btn" data-a="weekSave">Save</button>';
+  var ym = today().slice(0, 7), mm = monthMoney(ym), mn = MOL[Number(ym.slice(5)) - 1], old = waitingOld();
+  var h = '<div class="card"><div class="b">Money for ' + mn + '</div>';
+  if (canMoney) {
+    h += field('Expected for ' + mn + ', in Kwacha', 'acc-exp', input('acc-exp', 'mexp', f.mexp != null ? f.mexp : (mm.exp != null ? mm.exp : ''), 'number', 'min="0" inputmode="decimal"'));
+    for (var ti = 0; ti < Math.max(3, mm.list.length); ti++) {
+      var tx = mm.list[ti];
+      h += '<fieldset class="tr"><legend>Tranche ' + (ti + 1) + '</legend><div class="two"><div class="field"><label for="acc-t' + ti + '">Received, in Kwacha</label>' + input('acc-t' + ti, 't' + ti, f['t' + ti] != null ? f['t' + ti] : (tx ? tx.amount : ''), 'number', 'min="0" inputmode="decimal"') +
+        '</div><div class="field"><label for="acc-d' + ti + '">Day received</label>' + input('acc-d' + ti, 'd' + ti, f['d' + ti] != null ? f['d' + ti] : (tx ? tx.date : ''), 'date', 'min="' + ym + '-01" max="' + today() + '"') + '</div></div></fieldset>';
+    }
+    h += '<button type="button" class="btn" data-a="monthSave">Save</button>';
+  }
+  h += '<div class="s num" id="month-money"><div>Expected for ' + mn + ': ' + (mm.exp != null ? money(mm.exp) : mm.ind != null ? money(mm.ind) + ' (indicative)' : 'not written') + '</div>' +
+    (canMoney ? '' : mm.list.map(function (x, i) { return '<div>Tranche ' + (i + 1) + ': ' + money(x.amount) + ' on ' + day(x.date) + '</div>'; }).join('')) +
+    '<div>Received in ' + mn + ': ' + (mm.list.length ? money(mm.rec) + ' in ' + plural(mm.list.length, 'tranche', 'tranches') : 'nothing yet') + '</div>' + (mm.toCome != null ? '<div>Still to come: ' + money(mm.toCome) + '</div>' : '') + '</div>';
+  h += '<div class="b" style="margin-top:6px">Week of ' + day(w.key) + '</div>';
   var pw = planItems(w.key, finAddDays(w.key, 6)).filter(function (x) { return x.fixed || monthlySecs().indexOf(x.sec) < 0; }), pt = 0, pn = 0;
   pw.forEach(function (x) { pt += x.amount; if (!x.req) pn += x.amount; });
-  h += '<div class="s num" id="week-money"><div>Planned from the budget: ' + money(pt) + (pn ? ' · not asked ' + money(pn) : '') + '</div>' + (w.car != null ? '<div>' + carText(w.car) + '</div>' : '') + '<div>Expected: ' + (w.exp != null ? money(w.exp) : w.ind != null ? money(w.ind) + ' (indicative)' : 'not written') + '</div><div>Received: ' + (w.onRec ? money(w.rec) + (w.recDate ? ' on ' + day(w.recDate) : '') : 'nothing yet') + '</div><div>Paid this week: ' + money(w.paid) + '</div><div>Still to pay this week: ' + money(w.due) + '</div></div>';
+  h += '<div class="s num" id="week-money"><div>Planned from the budget: ' + money(pt) + (pn ? ' · not asked ' + money(pn) : '') + '</div>' + (w.car != null ? '<div>' + carText(w.car) + '</div>' : '') + (!w.onRec && (w.exp != null || w.ind != null) ? '<div>Expected this week: ' + (w.exp != null ? money(w.exp) : money(w.ind) + ' (indicative)') + '</div>' : '') + '<div>Received this week: ' + (w.onRec ? money(w.rec) + (w.recDate ? ' on ' + day(w.recDate) : '') : 'nothing yet') + '</div><div>Paid this week: ' + money(w.paid) + '</div><div>Still to pay this week: ' + money(w.due) + '</div>' + (old.length ? '<div id="week-old">Waiting from before this week: ' + plural(old.length, 'request', 'requests') + ' · ' + money(sumOf(old)) + '</div>' : '') + '</div>';
   if (w.set) h += '<div class="num b ' + (w.left >= 0 ? 'good' : 'bad') + '" style="font-size:18px">' + (w.left >= 0 ? 'Left: ' + money(w.left) : 'Short by ' + money(-w.left)) + '</div><div class="s m">' + w.onText + '</div>';
   else h += '<div class="s m">' + 'Money not written yet.' + '</div>';
   function left(c) { if (!w.set) return '<td>-</td>'; var n = w.left - c; return n >= 0 ? '<td>' + kw(n) + '</td>' : '<td class="short">short ' + kw(-n) + '</td>'; }
@@ -430,7 +456,10 @@ var PLAN_FIXED = /\bsalar|\bnapsa\b|\bwages?\b|head coach|assistant coach|co-coa
 function lineFixed(L) { return !!planRule(L).fixed; }
 /* food lines: the request says for how many people, how much, at which price, and what is left in the store */
 var FOOD_NO = /dish wash|jik|domestos|charcoal|uniform|equipment/i;
-function foodDefault(L) { return (L.sec === 'CAN' && !FOOD_NO.test(L.name)) || /^groceries$/i.test(L.name); }
+/* food is bought several times in the month; every line of the Canteen asks the quantity */
+function foodTime(L) { return (L.sec === 'CAN' && !FOOD_NO.test(L.name)) || /^groceries$/i.test(L.name); }
+function foodDefault(L) { return L.sec === 'CAN' || /^groceries$/i.test(L.name); }
+function secQty(code) { var s = SEC[code]; if (!s) return false; var ls = s.lines.filter(function (l) { return !lineFixed(l); }); return ls.length > 0 && ls.every(lineFood); }
 function lineFood(L) { return !!L && !!planRule(L).food; }
 /* the form opened from one budget line: it asks the amount for a month */
 function isItemForm() { var f = S.ui.form; return !!f.month && !f.editId && !!LINE[f.line]; }
@@ -440,7 +469,7 @@ function formMonth(prev) {
   if (!f.amount || Number(f.amount) === Number(f.planAmt)) f.amount = amt ? String(amt) : '';
   f.what = L.name + ', ' + ymText(f.month); f.planAmt = amt; f.needed = g && g.first ? g.first : f.month + '-01'; f.plan = L.id + '|' + f.month + '|m'; f.cMonth = f.month;
 }
-function isFoodForm() { var f = S.ui.form; return !!f.line && lineFood(LINE[f.line]); }
+function isFoodForm() { var f = S.ui.form; return LINE[f.line] ? lineFood(LINE[f.line]) : secQty(f.section); }
 function foodSync() {
   var f = S.ui.form; if (!isFoodForm()) return;
   var a = Math.round(Number(f.fqty) * Number(f.fprice) * 100) / 100, el = document.getElementById('rq-calc');
@@ -481,7 +510,7 @@ function planDefault(L) {
   if (f >= 12) {
     for (i = 1; i <= 12; i++) months.push(i); prio = 'P1';
     if (/salar|napsa|wage|coach/i.test(L.name)) when = 'w3';
-    else if (/fuel|food|mealie|relish|vegetable/i.test(L.name) || (L.sec === 'CAN' && foodDefault(L))) { when = 'spread'; times = 4; }
+    else if (/fuel|food|mealie|relish|vegetable/i.test(L.name) || (L.sec === 'CAN' && foodTime(L))) { when = 'spread'; times = 4; }
   } else if (f === 3) months = [1, 5, 9];
   else if (f === 4) months = [1, 4, 7, 10];
   else if (f >= 2) { for (i = 0; i < f; i++) { var m = Math.floor(i * 12 / f) + 1; if (months.indexOf(m) < 0) months.push(m); } }
@@ -495,9 +524,9 @@ function planDefault(L) {
 function planRule(L) { var o = (V().settings.plan || {})[L.id]; return o ? { months: o.months || [], when: o.when, times: o.times, amount: o.amount, prio: o.prio, fixed: o.fixed != null ? !!o.fixed : PLAN_FIXED.test(L.name), food: o.food != null ? !!o.food : foodDefault(L), own: true } : planDefault(L); }
 function planDays(r) { if (r.when !== 'spread') return [{ w1: 1, w2: 8, w3: 15, w4: 22 }[r.when] || 1]; var a = []; for (var i = 0; i < r.times; i++) a.push(1 + Math.round(i * 28 / r.times)); return a; }
 function planText(r) {
-  if (!r.months.length || !r.amount) return 'No month yet' + (r.fixed ? ' · fixed' : '') + (r.food ? ' · food' : '');
+  if (!r.months.length || !r.amount) return 'No month yet' + (r.fixed ? ' · fixed' : '') + (r.food ? ' · quantity' : '');
   var n = r.months.length * (r.when === 'spread' ? r.times : 1);
-  return (r.months.length === 12 ? 'Every month' : r.months.map(function (m) { return MO[m - 1]; }).join(', ')) + ' · ' + (r.when === 'spread' ? plural(r.times, 'time', 'times') + ' a month' : 'week ' + r.when.slice(1)) + ' · ' + money(r.amount) + (n > 1 ? ' each' : '') + (r.fixed ? ' · fixed' : '') + (r.food ? ' · food' : '');
+  return (r.months.length === 12 ? 'Every month' : r.months.map(function (m) { return MO[m - 1]; }).join(', ')) + ' · ' + (r.when === 'spread' ? plural(r.times, 'time', 'times') + ' a month' : 'week ' + r.when.slice(1)) + ' · ' + money(r.amount) + (n > 1 ? ' each' : '') + (r.fixed ? ' · fixed' : '') + (r.food ? ' · quantity' : '');
 }
 /* every planned expense between two dates, with the request that asked for it, if any */
 function planItems(from, to) {
@@ -803,7 +832,9 @@ function scrNew() {
     h += field('Budget line', 'rq-line', '<select class="in" id="rq-line" data-f="line" data-r="1">' + lineOptions(f.section, f.line) + '</select>');
   }
   if (isFoodForm()) {
-    foodSync(); if (!f.funit) f.funit = 'kg';
+    foodSync();
+    if (f.funitFor !== (f.line || '')) { f.funitFor = f.line || ''; if (!f.fqty) f.funit = LINE[f.line] && !foodTime(LINE[f.line]) ? 'pieces' : 'kg'; }
+    if (!f.funit) f.funit = 'kg';
     h += field('For how many people', 'rq-fpeople', input('rq-fpeople', 'fpeople', f.fpeople, 'number', 'min="1" inputmode="numeric"'));
     h += field(item ? 'Quantity for ' + mName : 'Quantity', 'rq-fqty', input('rq-fqty', 'fqty', f.fqty, 'number', 'min="0" inputmode="decimal" data-b="1"'));
     h += field('Unit', 'rq-funit', '<select class="in" id="rq-funit" data-f="funit" data-r="1">' + options([['kg', 'kg'], ['litres', 'litres'], ['pieces', 'pieces'], ['trays', 'trays'], ['bags', 'bags']], f.funit) + '</select>');
@@ -1115,7 +1146,7 @@ function modal() {
       (m.when === 'spread' ? mField('Times in the month', 'pl-times', 'times', 'number', 'min="1" max="8" inputmode="numeric"') : '') +
       mField('Amount each time, in Kwacha', 'pl-amount', 'amount', 'number', 'min="0" inputmode="decimal"') +
       '<div class="field"><label for="pl-fixed">Who asks</label><select class="in" id="pl-fixed" data-m="fixed">' + options([['0', 'The section asks'], ['1', 'Fixed: the Accountant sends it']], m.fixed) + '</select></div>' +
-      '<div class="field"><label for="pl-food">Food: people, quantity, price</label><select class="in" id="pl-food" data-m="food">' + options([['0', 'No'], ['1', 'Yes']], m.food) + '</select></div>' +
+      '<div class="field"><label for="pl-food">Ask people, quantity, price</label><select class="in" id="pl-food" data-m="food">' + options([['0', 'No'], ['1', 'Yes']], m.food) + '</select></div>' +
       '<div class="field"><label for="pl-prio">Priority</label><select class="in" id="pl-prio" data-m="prio">' + options([['P1', 'P1'], ['P2', 'P2'], ['P3', 'P3']], m.prio) + '</select></div>' + err +
       '<div class="btns"><button type="button" class="btn pri" data-a="planSave">' + (proposes() ? 'Send to the Director' : 'Save') + '</button>' + (x.own ? '<button type="button" class="btn" data-a="planReset">Back to the budget</button>' : '') + close + '</div>';
   }
@@ -1325,7 +1356,7 @@ function demoDb() {
   var dl = function (id, sec, what, amount, line, off, rep) { db.rev++; db.deadlines.push({ id: id, section: sec, what: what, amount: amount, line: line, lineName: LINE[line] ? LINE[line].name : '', date: finAddDays(t, off), repeat: rep ? 'monthly' : '', pay: 'bank', asked: '', deleted: false, rev: db.rev }); };
   dl('dd1', 'FOO', 'Tournament', 1000, 'FOO-12', 6); dl('dd2', 'FOO', 'Away match', 2000, 'FOO-11', 13); dl('dd3', 'FOO', 'Communication allowance coaches', 320, 'FOO-20', 17, true);
   dl('dd4', 'CAR', 'Examination fees, 15 students', 5250, 'CAR-21', 4); dl('dd5', 'ADM', 'Motor vehicle insurance, 1 vehicle', 5000, 'ADM-06', 9);
-  db.rev++; db.settings.weeks[finWeekKey(t)] = 22000; db.settings.weeksExp[finWeekKey(t)] = 25000; db.settings.weeksDate[finWeekKey(t)] = t; db.settings.monthly = ['CAR', 'SCH', 'FAM']; db.settings.countFrom = finAddDays(t, -60); db.settings.rev = db.rev;
+  db.rev++; db.settings.weeks[finWeekKey(t)] = 22000; db.settings.monthExp = {}; db.settings.monthExp[t.slice(0, 7)] = 70000; db.settings.weeksDate[finWeekKey(t)] = t; db.settings.monthly = ['CAR', 'SCH', 'FAM']; db.settings.countFrom = finAddDays(t, -60); db.settings.rev = db.rev;
   return db;
 }
 
@@ -1388,6 +1419,21 @@ function reqRow(r) {
   var L = LINE[r.line], u = L ? lineUse(r.line) : null;
   return [r.no || 'Not sent yet', r.created, secName(r.section), r.what, r.amount, r.prio, r.needed, r.notice, r.emergency ? 'Emergency' : '', r.emergency ? r.reason + ': ' + r.why : '', payText(r), (PILL[r.status] || PILL.Waiting)[0], r.byName, r.line === 'none' ? '' : r.line, r.lineName || (r.line === 'none' ? 'Not in the budget' : ''), L ? L.act : '', L ? L.total : '', u ? u.used : '', r.decidedBy, r.decidedAt ? finToday(r.decidedAt) : '', r.note, r.paidBy, r.paidAt ? finToday(r.paidAt) : '', r.receipt ? 'Yes' : (r.status === 'Paid' ? 'Missing' : ''), r.quoteFile ? 'Yes' : 'No', r.payOn || '', r.revised || '', r.food ? r.food.people : '', r.food ? r.food.qty : '', r.food ? r.food.unit : '', r.food ? r.food.price : '', r.food ? r.food.stock : '', r.spent != null ? r.spent : '', r.spent != null ? Math.round((r.amount - r.spent) * 100) / 100 : '', finPaid(r), r.parts ? r.parts.length : 1, isFixedReq(r) ? 'Fixed cost' : ({ head: 'Section head', accountant: 'Accountant, for the section', director: 'Director', viewer: 'Can look' })[roleOf(r)] || ''];
 }
+/* what was approved, by month of need, for each section and each budget line; and what is waiting now */
+function approvedData() {
+  var v = V(), s = v.settings, app = {}, wait = {}, a = s.countFrom.slice(0, 7), b = FIN_BUDGET.year + '-12', cols = [];
+  function add(key, ym, n) { var x = app[key] || (app[key] = {}); x[ym] = (x[ym] || 0) + n; }
+  v.requests.forEach(function (r) {
+    if (!counted(r, s)) return;
+    var ym = String(r.needed).slice(0, 7); if (ym > b) b = ym;
+    if (r.items) r.items.forEach(function (it) { add(r.section, ym, it.amount); add(r.section + '|' + (it.line || 'none'), ym, it.amount); });
+    else { add(r.section, ym, committed(r)); add(r.section + '|' + (r.line || 'none'), ym, committed(r)); }
+  });
+  weekWaiting().forEach(function (r) { (r.items || [{ line: r.line, amount: r.amount }]).forEach(function (it) { wait[r.section] = (wait[r.section] || 0) + it.amount; var k = r.section + '|' + (it.line || 'none'); wait[k] = (wait[k] || 0) + it.amount; }); });
+  var y = Number(a.slice(0, 4)), m = Number(a.slice(5));
+  while (cols.length < 48) { var k = y + '-' + (m < 10 ? '0' : '') + m; if (k > b) break; cols.push(k); m++; if (m > 12) { m = 1; y++; } }
+  return { cols: cols, app: app, wait: wait };
+}
 function dlHead() { return ['Section', 'What', 'Amount (K)', 'Needed on', 'Last day to ask', 'Late', 'Every month', 'Pay by', 'Budget line code', 'Budget line']; }
 function dlRow(x) { var d = deadlineView(x); return [secName(x.section), x.what, x.amount, x.date, d.askBy, d.late ? 'Late' : '', x.repeat ? 'Yes' : '', x.pay === 'cash' ? 'Cash' : 'Bank or mobile money', x.line === 'none' ? '' : (x.line || ''), x.lineName || '']; }
 function budgetSections() { return finSeesAll(S.me) ? FIN_BUDGET.sections : FIN_BUDGET.sections.filter(function (s) { return S.me.sections.indexOf(s.code) >= 0; }); }
@@ -1399,8 +1445,11 @@ function exportSheets() {
   function dl(name, list) { out.push({ name: name, head: dlHead(), rows: list.sort(function (a, b) { return a.date < b.date ? -1 : 1; }).map(dlRow) }); }
   function weekSheet() {
     var d = weekPlanData(), lf = function (c) { return w.set ? w.left - c : ''; };
-    out.push({ name: 'Money this week', head: ['Item', 'Value'], rows: [['Week of', w.key], ['Money expected (K)', w.exp != null ? w.exp : 'Not written'], ['Money received (K)', w.onRec ? w.rec : 'Nothing yet'], ['Date received', w.recDate || ''], ['Paid this week (K)', w.paid], ['Still to pay this week (K)', w.due], ['Left from the weeks before (K)', w.car != null ? w.car : ''], ['Indicative amount (K)', w.ind != null ? w.ind : ''], ['Left (K), counted on the money ' + w.basis, w.set ? w.left : ''],
-      ['Waiting, P1 (K)', d.c1], ['Waiting, P1 + P2 (K)', d.c2], ['Waiting, P1 + P2 + P3 (K)', d.c3], ['To pay this week if P1 is approved (K)', d.d1], ['To pay this week if P1 + P2 are approved (K)', d.d2], ['To pay this week if all is approved (K)', d.d3], ['Left if P1 is approved (K)', lf(d.d1)], ['Left if P1 + P2 are approved (K)', lf(d.d2)], ['Left if all is approved (K)', lf(d.d3)]] });
+    var ym = today().slice(0, 7), mm = monthMoney(ym), mt = ymText(ym), old = waitingOld();
+    out.push({ name: 'Money this week', head: ['Item', 'Value'], rows: [['Week of', w.key], ['Expected for ' + mt + ' (K)', mm.exp != null ? mm.exp : mm.ind != null ? mm.ind : 'Not written'], ['Received in ' + mt + ' (K)', mm.rec], ['Still to come in ' + mt + ' (K)', mm.toCome != null ? mm.toCome : ''],
+      ['Left from the weeks before (K)', w.car != null ? w.car : ''], ['Money received this week (K)', w.onRec ? w.rec : 'Nothing yet'], ['Date received', w.recDate || ''], [w.exp != null ? 'Expected this week (K)' : 'Indicative amount for this week (K)', w.exp != null ? w.exp : w.ind != null ? w.ind : ''], ['Paid this week (K)', w.paid], ['Still to pay this week (K)', w.due], ['Left (K), counted on the money ' + w.basis, w.set ? w.left : ''],
+      ['Waiting, P1 (K)', d.c1], ['Waiting, P1 + P2 (K)', d.c2], ['Waiting, P1 + P2 + P3 (K)', d.c3], ['To pay this week if P1 is approved (K)', d.d1], ['To pay this week if P1 + P2 are approved (K)', d.d2], ['To pay this week if all is approved (K)', d.d3], ['Left if P1 is approved (K)', lf(d.d1)], ['Left if P1 + P2 are approved (K)', lf(d.d2)], ['Left if all is approved (K)', lf(d.d3)],
+      ['Requests waiting from before this week', old.length], ['Requests waiting from before this week (K)', sumOf(old)]].concat(mm.list.map(function (x, i) { return ['Tranche ' + (i + 1) + ' of ' + mt + ' (K), received ' + x.date, x.amount]; })) });
     out.push({ name: 'By budget line', head: ['Section', 'Budget line', 'Line name', 'P1 (K)', 'P2 (K)', 'P3 (K)', 'P1 + P2 (K)', 'P1 + P2 + P3 (K)'], rows: d.rows.map(function (x) { return [secName(x.sec), x.line, x.name, x.P1, x.P2, x.P3, x.P1 + x.P2, x.P1 + x.P2 + x.P3]; }) });
   }
   if (t === 'week') {
@@ -1414,6 +1463,20 @@ function exportSheets() {
     wl.forEach(function (r) { var x = bs[r.section] || (bs[r.section] = { P1: 0, P2: 0, P3: 0, n: 0 }); x[x[r.prio] != null ? r.prio : 'P3'] += r.amount; x.n++; });
     out.push({ name: 'Waiting by section', head: ['Section', 'Requests', 'P1 (K)', 'P2 (K)', 'P3 (K)', 'Total (K)'], rows: hs.filter(function (c) { return bs[c]; }).map(function (c) { var x = bs[c]; return [secName(c), x.n, x.P1, x.P2, x.P3, x.P1 + x.P2 + x.P3]; }) });
     weekSheet();
+    rq('Waiting this week', wl.slice().sort(byPrio)); rq('Waiting from before', waitingOld().sort(byPrio));
+    var ad = approvedData(), mh = ad.cols.map(function (k) { return MO[Number(k.slice(5)) - 1] + ' ' + k.slice(0, 4); }), tot = ad.cols.map(function () { return 0; }), tb = 0, ta = 0, tw = 0;
+    var prow = function (first, budget, key) {
+      var m = ad.app[key] || {}, sum = 0, vals = ad.cols.map(function (k) { var n = Math.round((m[k] || 0) * 100) / 100; sum += n; return n; });
+      sum = Math.round(sum * 100) / 100;
+      return { vals: vals, sum: sum, row: first.concat([budget]).concat(vals).concat([sum, budget > 0 ? Math.round(sum / budget * 1000) / 10 : '', budget !== '' ? Math.round((budget - sum) * 100) / 100 : '', Math.round((ad.wait[key] || 0) * 100) / 100]) };
+    };
+    var srows = FIN_BUDGET.sections.map(function (s0) { var p = prow([s0.name], s0.total, s0.code); p.vals.forEach(function (n, i) { tot[i] += n; }); tb += s0.total; ta += p.sum; tw += ad.wait[s0.code] || 0; return p.row; });
+    srows.push(['Total', tb].concat(tot.map(function (n) { return Math.round(n * 100) / 100; })).concat([Math.round(ta * 100) / 100, tb > 0 ? Math.round(ta / tb * 1000) / 10 : '', Math.round((tb - ta) * 100) / 100, Math.round(tw * 100) / 100]));
+    out.push({ name: 'Approved by section', head: ['Section', 'Budget ' + FIN_BUDGET.year + ' (K)'].concat(mh).concat(['Approved (K)', '% of the budget', 'Left (K)', 'Waiting now (K)']), rows: srows });
+    var lkeys = {}; Object.keys(ad.app).concat(Object.keys(ad.wait)).forEach(function (k) { if (k.indexOf('|') > 0) lkeys[k] = 1; });
+    var lrows = Object.keys(lkeys).sort(function (a, b) { var sa = hs.indexOf(a.split('|')[0]), sb = hs.indexOf(b.split('|')[0]); if (sa !== sb) return sa - sb; return a < b ? -1 : 1; }).map(function (k) {
+      var c = k.split('|'), L = LINE[c[1]]; return prow([secName(c[0]), L ? L.id : '', L ? L.name : 'Not in the budget'], L ? L.total : '', k).row; });
+    out.push({ name: 'Approved by line', head: ['Section', 'Budget line code', 'Budget line', 'Budget of the line (K)'].concat(mh).concat(['Approved (K)', '% of the line', 'Left (K)', 'Waiting now (K)']), rows: lrows });
   }
   else if (t === 'soon') {
     var cm = askMonths().indexOf(f.cMonth) >= 0 ? f.cMonth : askMonths()[0], mrows = [];
@@ -1648,17 +1711,31 @@ var H = {
   },
   unpay: function (el) { var r = act('unpay', { id: el.dataset.id }); if (!r.ok) S.notices.push(errText(r.error)); render(); },
   wkLines: function () { S.ui.form.wkLines = !S.ui.form.wkLines; render(); },
-  weekSave: function () {
-    var f = S.ui.form, w = weekInfo(), did = 0, bad = '';
+  monthSave: function () {
+    var f = S.ui.form, ym = today().slice(0, 7), mm = monthMoney(ym), st = V().settings, did = 0, bad = '', rows = [], seen = {}, own = {};
     function val(x) { return x === '' || x == null ? null : Number(x); }
     function send(d) { var r = act('week_money', d); if (r.ok) did++; else bad = errText(r.error); }
-    var e = val(f.wexp), g = val(f.week);
-    if ((e !== null && !(e >= 0)) || (g !== null && !(g >= 0))) { S.notices.push('Write the amounts as numbers.'); return render(); }
-    if (f.wexp != null && e !== (w.exp != null ? w.exp : null)) send({ week: today(), kind: 'expected', amount: e });
-    var recNow = f.week != null ? g : (w.rec != null ? w.rec : null), dateNow = f.wdate || w.recDate || today();
-    if (recNow !== (w.rec != null ? w.rec : null) || (recNow !== null && dateNow !== w.recDate)) send({ week: today(), kind: 'received', amount: recNow, date: dateNow });
+    function stop(t) { S.notices.push(t); render(); }
+    var e = val(f.mexp);
+    if (e !== null && !(e >= 0)) return stop('Write the amounts as numbers.');
+    mm.list.forEach(function (x) { own[x.wk] = 1; });
+    for (var i = 0; i < Math.max(3, mm.list.length); i++) {
+      var o = mm.list[i] || null, amt = f['t' + i] != null ? val(f['t' + i]) : (o ? o.amount : null), dt = f['d' + i] || (o ? o.date : today());
+      if (amt !== null && !(amt >= 0)) return stop('Write the amounts as numbers.');
+      if (amt !== null) {
+        if (!finIsDate(dt) || dt.slice(0, 7) !== ym || dt > today()) return stop('Tranche ' + (i + 1) + ': the day received is in ' + MOL[Number(ym.slice(5)) - 1] + ', today or before.');
+        var wk = finWeekKey(dt);
+        if (seen[wk] || (st.weeks[wk] != null && !own[wk])) return stop('Two tranches in the same week: write the total on one line.');
+        seen[wk] = 1;
+      }
+      rows.push({ o: o, amt: amt, dt: dt });
+    }
+    if (f.mexp != null && e !== mm.exp) send({ kind: 'month', month: ym, amount: e });
+    rows.forEach(function (x) { if (x.o && (x.amt === null || finWeekKey(x.dt) !== x.o.wk)) send({ week: x.o.wk, kind: 'received', amount: null }); });
+    rows.forEach(function (x) { if (x.amt !== null && (!x.o || x.amt !== x.o.amount || x.dt !== x.o.date)) send({ week: x.dt, kind: 'received', amount: x.amt, date: x.dt }); });
     if (bad) S.notices.push(bad); else if (did) S.thanks = 'Saved.'; else S.notices.push('Write the money expected or the money received.');
-    delete f.wexp; delete f.week; delete f.wdate; render();
+    Object.keys(f).forEach(function (k) { if (k === 'mexp' || /^[td]\d+$/.test(k)) delete f[k]; });
+    render();
   },
   dlNew: function () { openModal({ type: 'dl', id: '' }, { section: S.me.sections.length === 1 ? S.me.sections[0] : '' }); },
   dlEdit: function (el) { var x = finFind(V().deadlines, el.dataset.id); if (!x) return; openModal({ type: 'dl', id: x.id }, { section: x.section, what: x.what, amount: x.amount, line: x.line, date: x.date, monthly: x.repeat === 'monthly', cash: x.pay === 'cash' }); },
