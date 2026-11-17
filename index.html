@@ -130,7 +130,7 @@ img.photo{max-width:100%;border-radius:8px;border:1px solid var(--line)}
 <script src="core.js"></script>
 <script>
 'use strict';
-var FIN_VERSION = 'alpha 0.11';
+var FIN_VERSION = 'alpha 0.12';
 
 /* ================= small tools ================= */
 function esc(s) { return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]; }); }
@@ -361,7 +361,7 @@ function weekInfo(k) {
   var onRec = rec != null, set = onRec || exp != null || ind != null || car != null, base = onRec ? rec : (exp != null ? exp : (ind || 0));
   return { key: wk, set: set, money: base, used: used, paid: paid, due: due, left: Math.round(((car || 0) + base - used) * 100) / 100, rec: rec, exp: exp, ind: ind, car: car, recDate: (s.weeksDate || {})[wk] || '', onRec: onRec,
     basis: onRec ? 'received' : exp != null ? 'expected' : ind != null ? 'indicative' : 'received',
-    onText: onRec ? 'On the money received.' : exp != null ? 'On the money expected.' : ind != null ? 'On the indicative amount.' : 'On the money left from before.' };
+    onText: onRec ? 'On the money received this week.' : exp != null ? 'On the money expected this week.' : ind != null ? 'On the indicative amount for this week.' : 'On the money left from before.' };
 }
 /* what was decided and paid in one week */
 function weekDecided(k) {
@@ -473,7 +473,7 @@ function planDefault(L) {
   if (f >= 12) {
     for (i = 1; i <= 12; i++) months.push(i); prio = 'P1';
     if (/salar|napsa|wage|coach/i.test(L.name)) when = 'w3';
-    else if (/fuel|food|mealie|relish|vegetable/i.test(L.name) || L.sec === 'CAN') { when = 'spread'; times = 4; }
+    else if (/fuel|food|mealie|relish|vegetable/i.test(L.name) || (L.sec === 'CAN' && foodDefault(L))) { when = 'spread'; times = 4; }
   } else if (f === 3) months = [1, 5, 9];
   else if (f === 4) months = [1, 4, 7, 10];
   else if (f >= 2) { for (i = 0; i < f; i++) { var m = Math.floor(i * 12 / f) + 1; if (months.indexOf(m) < 0) months.push(m); } }
