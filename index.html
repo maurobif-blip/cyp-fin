@@ -9,6 +9,7 @@
 <meta name="apple-mobile-web-app-title" content="CYP FIN">
 <title>CYP FIN</title>
 <meta name="theme-color" content="#0B5FA5">
+<meta name="referrer" content="no-referrer">
 <link rel="manifest" href="manifest.webmanifest">
 <link rel="icon" href="icons/favicon-48.png">
 <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
@@ -148,7 +149,7 @@ body{padding-top:env(safe-area-inset-top)}
 <script src="core.js"></script>
 <script>
 'use strict';
-var FIN_VERSION = 'alpha 0.15';
+var FIN_VERSION = 'alpha 0.16';
 
 /* ================= small tools ================= */
 function esc(s) { return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]; }); }
@@ -689,10 +690,13 @@ function lineOptions(code, val) {
 }
 
 function scrStart() {
+  var canPaste = !!(navigator.clipboard && navigator.clipboard.readText);
   return '<main><h1>Open CYP FIN</h1>' +
-    '<div class="card">' + field('Paste the link you received', 'st-link', '<input class="in" id="st-link" data-f="link" value="' + esc(S.ui.form.link || '') + '" autocomplete="off">') +
+    '<div class="card"><div>Copy the CYP FIN link from the message you received.</div>' +
+    (canPaste ? '<button type="button" class="btn pri big" data-a="pasteLink">Paste the link</button>' : '') +
+    field('The link', 'st-link', '<input class="in" id="st-link" data-f="link" value="' + esc(S.ui.form.link || '') + '" autocomplete="off" autocapitalize="off">') +
     (S.ui.err ? '<div class="box err" role="alert">' + esc(S.ui.err) + '</div>' : '') +
-    '<button type="button" class="btn pri" data-a="connect">Connect</button></div>' +
+    '<button type="button" class="btn' + (canPaste ? '' : ' pri') + '" data-a="connect">Connect</button></div>' +
     '<div class="card"><div class="b">No link yet?</div><button type="button" class="btn" data-a="demo">Try the demo</button><div class="s m">Invented data. It stays on this phone.</div>' +
     '<button type="button" class="btn" data-a="localOnly">Use on this phone only</button><div class="s m">For a first test. Other phones will not see it.</div></div>' +
     '<div class="s m center">CYP FIN ' + FIN_VERSION + '</div></main>';
@@ -1330,7 +1334,7 @@ function hello() {
   }).catch(function () { S.online = false; return null; });
 }
 function startWith(cfg) {
-  S.cfg = cfg; KV.set('cfg', cfg);
+  S.cfg = cfg; KV.set('cfg', cfg); carryLink();
   if (cfg.mode === 'shared') { S.shared = { url: cfg.url, key: cfg.key }; KV.set('shared', S.shared); sendDemoComments(); }
   return hello().then(function (res) {
     S.ui.screen = res && res.ok && res.empty ? 'first' : 'login'; S.ui.form = {}; S.ui.err = '';
@@ -1348,7 +1352,25 @@ function parseLink(text) {
   if (m) return { mode: 'shared', url: m[1], key: m[2] };
   return null;
 }
-function staffLink() { var code = btoa(S.cfg.url + '|' + S.cfg.key).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, ''); return location.origin + location.pathname + '?db=' + code; }
+function linkCode(c) { return btoa(c.url + '|' + c.key).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, ''); }
+function staffLink() { return location.origin + location.pathname + '?db=' + linkCode(S.cfg); }
+function isIOS() { var ua = navigator.userAgent || ''; return /iPhone|iPad|iPod/.test(ua) || (/Macintosh/.test(ua) && navigator.maxTouchPoints > 1); }
+function isStandalone() { return (window.matchMedia && window.matchMedia('(display-mode: standalone)').matches) || window.navigator.standalone === true; }
+/* iPhone and iPad: the app on the Home Screen does not see what Safari saved, so the icon must carry the link.
+   In Safari the link stays in the address, the manifest starts from the link, and a cookie keeps it (iOS copies the cookies to the new icon). */
+function carryLink() {
+  var c = S.cfg && S.cfg.mode === 'shared' ? S.cfg : null, ios = isIOS(), dir = location.pathname.replace(/[^\/]*$/, '');
+  try { history.replaceState(null, '', location.pathname + (c && ios && !isStandalone() ? '?db=' + linkCode(c) : '')); } catch (e) {}
+  if (!ios) return;
+  try { document.cookie = 'finlink=' + (c ? linkCode(c) : '') + '; path=' + dir + '; max-age=' + (c ? 31536000 : 0) + '; SameSite=Strict' + (location.protocol === 'https:' ? '; Secure' : ''); } catch (e) {}
+  var l = document.querySelector('link[rel="manifest"]'); if (!l) return;
+  if (!c) { l.setAttribute('href', 'manifest.webmanifest'); return; }
+  var base = location.origin + dir;
+  var m = { name: 'CYP FIN', short_name: 'CYP FIN', description: 'Cicetekelo Youth Project: budget and payment requests', id: base, start_url: base + '?db=' + linkCode(c), scope: base, display: 'standalone', background_color: '#FFFFFF', theme_color: '#0B5FA5',
+    icons: [{ src: base + 'icons/icon-192.png', sizes: '192x192', type: 'image/png', purpose: 'any' }, { src: base + 'icons/icon-512.png', sizes: '512x512', type: 'image/png', purpose: 'any' }, { src: base + 'icons/icon-maskable-512.png', sizes: '512x512', type: 'image/png', purpose: 'maskable' }] };
+  l.setAttribute('href', 'data:application/manifest+json,' + encodeURIComponent(JSON.stringify(m)));
+}
+function cookieLink() { var m = /(?:^|;\s*)finlink=([A-Za-z0-9_\-]+)/.exec(document.cookie || ''); return m ? parseLink('?db=' + m[1]) : null; }
 function demoDb() {
   var db = finNewDb(), t = today(), n = 0, mk = function (id, name, role, sections, admin) { db.rev++; db.users.push({ id: id, name: name, role: role, sections: sections, admin: !!admin, active: true, salt: 'demo', cred: credOf('demo', '1111'), fails: 0, lockUntil: '', rev: db.rev }); };
   mk('d-head', 'Demo head, Football Academy', 'head', ['FOO']); mk('d-dir', 'Demo Director', 'director', [], true); mk('d-acc', 'Demo Accountant', 'accountant', ['ADM']); mk('d-car', 'Demo head, Carpentry', 'head', ['CAR']);
@@ -1552,6 +1574,9 @@ function scrBudget() {
 var H = {
   tab: function (el) { if (el.dataset.id === 'new' && S.ui.tab !== 'new') { S.ui.form = {}; } go(el.dataset.id); },
   noticeOk: function () { S.notices = []; S.thanks = ''; render(); },
+  pasteLink: function () {
+    navigator.clipboard.readText().then(function (t) { S.ui.form.link = t; H.connect(); }, function () { S.ui.err = 'The phone did not let CYP FIN read the copied link. Paste it in the box.'; render(); });
+  },
   connect: function () {
     var cfg = parseLink(S.ui.form.link);
     if (!cfg) { S.ui.err = 'This is not a CYP FIN link. Copy the whole link from the message you received.'; render(); return; }
@@ -1560,7 +1585,7 @@ var H = {
   demo: function () { S.me = null; S.cred = ''; S.cache = null; fresh(); try { sessionStorage.removeItem('fin-session'); } catch (e) {} S.ui.pick = null; S.ui.msg = ''; S.local = demoDb(); S.files = {}; KV.set('localdb', S.local); startWith({ mode: 'demo', key: 'local' }); },
   localOnly: function () { S.local = null; S.files = {}; KV.set('localdb', null); startWith({ mode: 'local', key: 'local' }); },
   leaveDemo: function () { if (!S.shared) return H.forget(); S.me = null; S.cred = ''; S.cache = null; fresh(); try { sessionStorage.removeItem('fin-session'); } catch (e) {} S.ui = { screen: 'boot', tab: '', form: {}, modal: null, m: {}, month: '', pick: null, err: '', msg: '' }; S.users = []; startWith({ mode: 'shared', url: S.shared.url, key: S.shared.key }); },
-  forget: function () { if (S.cfg && S.cfg.mode === 'shared') { S.shared = null; KV.set('shared', null); } S.cfg = null; KV.set('cfg', null); S.users = []; KV.set('users', []); S.ui = { screen: 'start', tab: '', form: {}, modal: null, m: {}, month: '', pick: null, err: '', msg: '' }; render(); },
+  forget: function () { if (S.cfg && S.cfg.mode === 'shared') { S.shared = null; KV.set('shared', null); } S.cfg = null; KV.set('cfg', null); carryLink(); S.users = []; KV.set('users', []); S.ui = { screen: 'start', tab: '', form: {}, modal: null, m: {}, month: '', pick: null, err: '', msg: '' }; render(); },
   firstAdmin: function () {
     var f = S.ui.form, name = String(f.name || '').trim();
     if (!name) { S.ui.err = 'Write your name.'; return render(); }
@@ -1888,11 +1913,12 @@ setInterval(function () { if (!document.hidden && S.me && S.cfg && S.cfg.mode ==
 (function boot() {
   render();
   var fromLink = parseLink(location.search + location.hash), wantDemo = !!fromLink && /[?&#]demo=1/.test(location.search + location.hash);
-  if (fromLink) { try { history.replaceState(null, '', location.pathname); } catch (e) {} }
+  /* on iPhone the link stays in the address until the database is known: carryLink decides */
+  if (fromLink && !isIOS()) { try { history.replaceState(null, '', location.pathname); } catch (e) {} }
   Promise.all([KV.get('cfg'), KV.get('queue'), KV.get('verif'), KV.get('users'), KV.get('localdb'), KV.get('localfiles'), KV.get('shared'), KV.get('demoCom'), KV.get('comName')]).then(function (a) {
     S.queue = a[1] || []; S.verif = a[2] || {}; S.users = a[3] || []; S.local = a[4] || null; S.files = a[5] || {}; S.shared = a[6] || null; S.demoCom = a[7] || []; S.comName = a[8] || '';
     if (wantDemo) { S.shared = { url: fromLink.url, key: fromLink.key }; KV.set('shared', S.shared); sendDemoComments(); return H.demo(); }
-    var cfg = fromLink || a[0];
+    var cfg = fromLink || a[0] || (isIOS() ? cookieLink() : null);
     if (cfg && cfg.mode === 'demo') sendDemoComments();
     if (!cfg) { S.ui.screen = 'start'; return render(); }
     return startWith(cfg);
