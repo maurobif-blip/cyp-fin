@@ -51,6 +51,33 @@ function finSeesRequest(u, r) { return finSeesAll(u) || finHasSection(u, r.secti
 function finCanAskFor(u, code) { return finHasSection(u, code) || u.role === 'accountant'; }
 /* the dates of the agenda are kept by the Accountant, the Director and the administrator; a section head sees them and asks */
 function finCanDeadline(u, code) { return u.role === 'director' || u.role === 'accountant' || !!u.admin; }
+/* The comments a version answered. Each line: what to write on the comment, who wrote it ('' = anyone), its first words ('' = any),
+   written after this time, written before this time ('' = no limit). The times are those of the database (UTC).
+   At every sync the database closes the open comments that match. A comment the administrator opens again stays open. */
+var FIN_ANSWERED = [
+  ['test comment', 'Claude (test)', 'Test comment from the demo', '', ''],
+  ['answered in alpha 0.5', '', '', '2026-11-16T08:30:00.000Z', '2026-11-16T13:00:00.000Z'],
+  ['answered in alpha 0.9', '', '', '2026-11-16T13:00:00.000Z', '2026-11-17T09:00:00.000Z'],
+  ['answered in alpha 0.12', '', '', '2026-11-17T09:00:00.000Z', '2026-11-17T12:00:00.000Z'],
+  ['answered in alpha 0.14', '', '', '2026-11-17T12:00:00.000Z', '2026-11-17T12:20:00.000Z']
+];
+function finAnswer(db, nowIso) {
+  var out = [], cs = db.comments || [], i, j;
+  function low(x) { return String(x || '').replace(/\s+/g, ' ').replace(/^ | $/g, '').toLowerCase(); }
+  for (i = 0; i < cs.length; i++) {
+    var c = cs[i]; if (c.done || c.ans) continue;
+    for (j = 0; j < FIN_ANSWERED.length; j++) {
+      var a = FIN_ANSWERED[j];
+      if (!a[1] && !a[2] && !a[3] && !a[4]) continue;
+      if (a[1] && low(c.byName) !== low(a[1])) continue;
+      if (a[2] && low(c.text).indexOf(low(a[2])) !== 0) continue;
+      if (a[3] && !(String(c.time) >= a[3])) continue;
+      if (a[4] && !(String(c.time) < a[4])) continue;
+      c.done = true; c.doneBy = 'CYP FIN: ' + a[0]; c.doneAt = nowIso; c.ans = a[0]; out.push(c); break;
+    }
+  }
+  return out;
+}
 /* a comment on the app itself: which screen, which word, what the person says */
 function finCommentRec(d, nowIso, by, byName, demo) {
   return { id: String(d.id), time: nowIso, by: by, byName: byName, demo: !!demo, page: finText(d.page, 40), target: finText(d.target, 160), text: finText(d.text, 600),
@@ -307,6 +334,7 @@ function finApply(db, u, op, nowIso, store, info) {
     x = finFind(db.comments || [], d.id);
     if (!x) return fail('id');
     x.done = d.done !== false; x.doneBy = x.done ? u.name : ''; x.doneAt = x.done ? nowIso : '';
+    if (!x.done && !x.ans) x.ans = 'opened again';
     bump(x); if (info) info.comments.push(x);
     return { ok: true };
   }
@@ -473,6 +501,11 @@ function finHandle(req, store) {
     if (wasThu) db.settings.approvalDay = 1;
     db.settings.dayV2 = true; db.rev++; db.settings.rev = db.rev; dirty = true;
     if (wasThu) info.audit.push({ time: now, user: 'CYP FIN', action: 'Rules changed', no: '', detail: 'Day of the decisions: Monday' });
+  }
+  var ans = finAnswer(db, now);
+  for (i = 0; i < ans.length; i++) {
+    db.rev++; ans[i].rev = db.rev; info.comments.push(ans[i]); dirty = true;
+    info.audit.push({ time: now, user: 'CYP FIN', action: 'Comment closed', no: '', detail: ans[i].ans + ': ' + ans[i].text.slice(0, 80) });
   }
   for (i = 0; i < ops.length; i++) {
     var op = ops[i];
