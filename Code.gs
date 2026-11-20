@@ -617,6 +617,26 @@ function doPost(e) {
   finally { if (lock) { try { lock.releaseLock(); } catch (x) {} } }
 }
 function doGet(e) { return ContentService.createTextOutput('CYP FIN shared database'); }
+/* Night backup. A trigger of this script runs it every night (Triggers > backupNight > Time-driven > Day timer).
+   It copies the database into the folder "CYP FIN night backups", next to the spreadsheet: one file for each night, none is deleted.
+   The photos are not copied: they are files of their own in "CYP FIN photos". */
+function backupNight() {
+  var P = props_(), id = P.getProperty('dbId');
+  if (!id) return 'No database yet.';
+  var lock = LockService.getScriptLock(); lock.waitLock(25000);
+  try {
+    var dir = null, did = P.getProperty('nightId');
+    if (did) { try { dir = DriveApp.getFolderById(did); if (dir.isTrashed()) dir = null; } catch (e) { dir = null; } }
+    if (!dir) { dir = folder_().createFolder('CYP FIN night backups'); P.setProperty('nightId', dir.getId()); }
+    var name = 'cyp-fin-night-' + Utilities.formatDate(new Date(), 'Africa/Lusaka', 'yyyy-MM-dd') + '.json';
+    if (dir.getFilesByName(name).hasNext()) return 'Already there: ' + name;
+    var text = DriveApp.getFileById(id).getBlob().getDataAsString('UTF-8');
+    JSON.parse(text);                                   /* a copy that cannot be read is not a backup: stop with an error */
+    dir.createFile(name, text, 'application/json');
+    audit_([{ time: new Date().toISOString(), user: 'CYP FIN', action: 'Night backup', no: '', detail: name + ', ' + Math.round(text.length / 1024) + ' KB' }]);
+    return 'Saved: ' + name;
+  } finally { try { lock.releaseLock(); } catch (x) {} }
+}
 /* Run once from the editor: prepares the sheets, the photo folder and the key. */
 function setup() {
   sheet_('requests', REQ_HEAD); sheet_('log', LOG_HEAD); sheet_('comments', COM_HEAD); photos_();
