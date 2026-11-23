@@ -84,17 +84,34 @@ function finCommentRec(d, nowIso, by, byName, demo) {
     version: finText(d.version, 20), phone: !!d.phone, done: false, doneBy: '', doneAt: '' };
 }
 /* the lines of a monthly request: budget line, name, amount */
-function finItems(list) {
-  if (!list || !list.length || list.length > 80) return null;
+function finItems(list, rich) {
+  if (!list || !list.length || list.length > (rich ? 12 : 80)) return null;
   var out = [], sum = 0;
   for (var i = 0; i < list.length; i++) {
-    var a = Number(list[i].amount);
-    if (!list[i].line || !(a > 0) || a > 100000000) return null;
-    a = Math.round(a * 100) / 100; sum += a;
-    out.push({ line: String(list[i].line), lineName: finText(list[i].lineName, 120), amount: a });
+    var x = list[i], a = Number(x.amount), it;
+    if (!x.line) return null;
+    it = { line: String(x.line), lineName: finText(x.lineName, 120), amount: 0 };
+    if (rich) {
+      /* an item of a request, as a row of the paper form: what, how many, the cost of one. The amount is quantity x unit cost */
+      var w = finText(x.what, 120), q = x.qty === '' || x.qty == null ? 1 : Math.round(Number(x.qty) * 100) / 100, p = Math.round(Number(x.price) * 100) / 100;
+      if (!w || !(q > 0 && q <= 1000000) || !(p > 0 && p <= 100000000)) return null;
+      a = q * p; it.what = w; it.qty = q; it.price = p;
+      if (finText(x.unit, 12)) it.unit = finText(x.unit, 12);
+      if (x.stock !== '' && x.stock != null) { var st = Number(x.stock); if (!(st >= 0 && st <= 1000000)) return null; it.stock = Math.round(st * 100) / 100; }
+    }
+    if (!(a > 0) || a > 100000000) return null;
+    a = Math.round(a * 100) / 100; sum += a; it.amount = a;
+    out.push(it);
   }
   return { items: out, sum: Math.round(sum * 100) / 100 };
 }
+/* a request with items: the one budget line they share, or how many lines they touch */
+function finItemLine(b, d) {
+  var seen = {}, n = 0;
+  for (var i = 0; i < b.items.length; i++) if (!seen[b.items[i].line]) { seen[b.items[i].line] = 1; n++; }
+  d.line = n === 1 ? b.items[0].line : 'several'; d.lineName = n === 1 ? b.items[0].lineName : n + ' budget lines';
+}
+function finPeople(x) { if (x === '' || x == null) return 0; var p = Math.round(Number(x)); return p >= 1 && p <= 100000 ? p : -1; }
 /* a food request: for how many people, how much, at which price, and what is still in the store */
 function finFood(x) {
   if (!x) return null;
@@ -143,8 +160,13 @@ function finApply(db, u, op, nowIso, store, info) {
   if (t === 'req_new') {
     if (!finCanAskFor(u, d.section)) return fail('section');
     if (!d.id || finFind(db.requests, d.id)) return fail('id');
-    var what = finText(d.what, 160), amount = Number(d.amount), bundle = null, month = '';
-    if (d.items) {
+    var what = finText(d.what, 160), amount = Number(d.amount), bundle = null, month = '', ppl = 0;
+    if (d.items && !d.month) {
+      /* several items in one request, each on its budget line */
+      bundle = finItems(d.items, true); if (!bundle) return fail('items');
+      amount = bundle.sum; finItemLine(bundle, d);
+      ppl = finPeople(d.people); if (ppl < 0) return fail('food');
+    } else if (d.items) {
       /* one request for the whole month of a section */
       month = String(d.month || '');
       if (!/^\d{4}-\d{2}$/.test(month) || finMonthlySecs(s).indexOf(String(d.section)) < 0) return fail('section');
@@ -171,7 +193,7 @@ function finApply(db, u, op, nowIso, store, info) {
       line: String(d.line), lineName: finText(d.lineName, 120), prio: d.prio, needed: d.needed, pay: d.pay === 'cash' ? 'cash' : 'bank',
       created: created, received: nowIso, notice: notice, emergency: emergency, reason: emergency ? finText(d.reason, 60) : '', why: emergency ? finText(d.why, 200) : '',
       by: u.id, byName: u.name, byRole: u.role, status: 'Waiting', decidedBy: '', decidedAt: '', note: '', week: '', paidBy: '', paidAt: '',
-      receipt: false, receiptBy: '', receiptAt: '', quoteFile: saveFile(d.photo, 'quotation-' + d.id), receiptFile: '', deadline: d.deadline ? String(d.deadline) : '', plan: planKey, month: month, items: bundle ? bundle.items : null, food: food || null, parts: bundle ? null : finParts(d.parts, Math.round(amount * 100) / 100) };
+      receipt: false, receiptBy: '', receiptAt: '', quoteFile: saveFile(d.photo, 'quotation-' + d.id), receiptFile: '', deadline: d.deadline ? String(d.deadline) : '', plan: planKey, month: month, people: ppl, items: bundle ? bundle.items : null, food: food || null, parts: bundle ? null : finParts(d.parts, Math.round(amount * 100) / 100) };
     db.requests.push(r);
     touched(r, 'New request', what + ' K' + r.amount + (emergency ? ' EMERGENCY' : ''));
     if (r.deadline) {
@@ -366,9 +388,10 @@ function finApply(db, u, op, nowIso, store, info) {
   if (t === 'req_edit') {
     if (r.by !== u.id && !finCanAskFor(u, r.section)) return fail('role');
     if (r.status !== 'To revise') return fail('status');
-    var what2 = finText(d.what, 160), amount2 = Number(d.amount), bundle2 = null;
-    if (r.items) { bundle2 = finItems(d.items); if (!bundle2) return fail('amount'); amount2 = bundle2.sum; d.line = 'monthly'; d.lineName = bundle2.items.length + (bundle2.items.length === 1 ? ' budget line' : ' budget lines'); }
-    var food2 = r.items ? null : finFood(d.food);
+    var what2 = finText(d.what, 160), amount2 = Number(d.amount), bundle2 = null, ppl2 = 0;
+    if (r.month) { bundle2 = finItems(d.items); if (!bundle2) return fail('amount'); amount2 = bundle2.sum; d.line = 'monthly'; d.lineName = bundle2.items.length + (bundle2.items.length === 1 ? ' budget line' : ' budget lines'); }
+    else if (d.items) { bundle2 = finItems(d.items, true); if (!bundle2) return fail('items'); amount2 = bundle2.sum; finItemLine(bundle2, d); ppl2 = finPeople(d.people); if (ppl2 < 0) return fail('food'); }
+    var food2 = bundle2 ? null : finFood(d.food);
     if (food2 === false) return fail('food');
     if (food2) amount2 = Math.round(food2.qty * food2.price * 100) / 100;
     if (!what2) return fail('what');
@@ -379,8 +402,8 @@ function finApply(db, u, op, nowIso, store, info) {
     var notice2 = finWorkDays(r.created, d.needed), em2 = notice2 < s.noticeDays;
     var reason2 = finText(d.reason, 60) || r.reason, why2 = finText(d.why, 200) || r.why;
     if (em2 && (!reason2 || !why2)) return fail('reason');
-    if (bundle2) r.items = bundle2.items;
-    r.food = food2 || null; r.parts = r.items ? null : finParts(d.parts, Math.round(amount2 * 100) / 100);
+    r.items = bundle2 ? bundle2.items : null; r.people = ppl2;
+    r.food = food2 || null; r.parts = bundle2 ? null : finParts(d.parts, Math.round(amount2 * 100) / 100);
     r.what = what2; r.amount = Math.round(amount2 * 100) / 100; r.line = String(d.line); r.lineName = finText(d.lineName, 120); r.prio = d.prio; r.needed = d.needed;
     r.pay = d.pay === 'cash' ? 'cash' : 'bank'; r.notice = notice2; r.emergency = em2; r.reason = em2 ? reason2 : ''; r.why = em2 ? why2 : '';
     var q2 = saveFile(d.photo, 'quotation-' + r.id + '-' + ((r.revised || 0) + 1)); if (q2) r.quoteFile = q2;
