@@ -2,9 +2,16 @@
    The same text runs in three places: inside the Google script (Code.gs), inside the app
    (to show a change at once and to work on one phone without a database), and in the tests.
    It never talks to Google directly: everything it needs comes through "store". */
-var FIN_STATUSES = ['Waiting', 'To revise', 'Approved', 'Next week', 'Not approved', 'Paid', 'Cancelled'];
+var FIN_STATUSES = ['Review', 'Waiting', 'To revise', 'Approved', 'Next week', 'Not approved', 'Paid', 'Cancelled'];
 var FIN_ROLES = ['head', 'director', 'accountant', 'viewer'];
 var FIN_TZ_MINUTES = 120; /* Zambia, UTC+2 */
+/* departments that ask but are not a section of the budget. The part says who reviews: S social (the Administrator), C commercial (the Accountant) */
+var FIN_DEPTS = [['TRA', 'Transport', 'S'], ['MEW', 'Mechanics workshop', 'S'], ['MNT', 'Maintenance', 'S'], ['HRS', 'Human Resources', 'S'], ['MCP', 'Mary Christine', 'S'], ['HFH', 'Holy Family', 'S'], ['GIG', 'Gigi Bonta', 'C'], ['FRM', 'Farms', 'C']];
+function finPart(code) { for (var i = 0; i < FIN_DEPTS.length; i++) if (FIN_DEPTS[i][0] === code) return FIN_DEPTS[i][2]; return 'S'; }
+/* a request is reviewed before the Director sees it: the reviewer gives it its budget lines */
+function finReviewOn(s) { return !s || s.review !== false; }
+function finReviews(u, code) { return (u.reviews || []).indexOf(finPart(code)) >= 0; }
+function finOpenLines(items) { for (var i = 0; i < (items || []).length; i++) if (!items[i].line) return true; return false; }
 
 function finNewDb() {
   return { v: 1, rev: 0, seq: 0, users: [], requests: [], deadlines: [], comments: [],
@@ -42,12 +49,12 @@ function finAddMonth(s) {
 
 /* ---- people ---- */
 function finPublicUser(u) {
-  return { id: u.id, name: u.name, title: u.title || '', role: u.role, sections: u.sections || [], admin: !!u.admin, active: u.active !== false, salt: u.salt, rev: u.rev || 0 };
+  return { id: u.id, name: u.name, title: u.title || '', role: u.role, sections: u.sections || [], reviews: u.reviews || [], admin: !!u.admin, active: u.active !== false, salt: u.salt, rev: u.rev || 0 };
 }
 function finFind(list, id) { for (var i = 0; i < list.length; i++) if (list[i].id === id) return list[i]; return null; }
 function finHasSection(u, code) { return (u.sections || []).indexOf(code) >= 0; }
 function finSeesAll(u) { return u.role === 'director' || u.role === 'accountant' || u.role === 'viewer' || !!u.admin; }
-function finSeesRequest(u, r) { return finSeesAll(u) || finHasSection(u, r.section) || r.by === u.id; }
+function finSeesRequest(u, r) { return finSeesAll(u) || finHasSection(u, r.section) || r.by === u.id || finReviews(u, r.section); }
 function finCanAskFor(u, code) { return finHasSection(u, code) || u.role === 'accountant'; }
 /* the dates of the agenda are kept by the Accountant, the Director and the administrator; a section head sees them and asks */
 function finCanDeadline(u, code) { return u.role === 'director' || u.role === 'accountant' || !!u.admin; }
@@ -84,13 +91,13 @@ function finCommentRec(d, nowIso, by, byName, demo) {
     version: finText(d.version, 20), phone: !!d.phone, done: false, doneBy: '', doneAt: '' };
 }
 /* the lines of a monthly request: budget line, name, amount */
-function finItems(list, rich) {
+function finItems(list, rich, open) {
   if (!list || !list.length || list.length > (rich ? 12 : 80)) return null;
   var out = [], sum = 0;
   for (var i = 0; i < list.length; i++) {
     var x = list[i], a = Number(x.amount), it;
-    if (!x.line) return null;
-    it = { line: String(x.line), lineName: finText(x.lineName, 120), amount: 0 };
+    if (!x.line && !(open && rich)) return null;
+    it = { line: String(x.line || ''), lineName: x.line ? finText(x.lineName, 120) : '', amount: 0 };
     if (rich) {
       /* an item of a request, as a row of the paper form: what, how many, the cost of one. The amount is quantity x unit cost */
       var w = finText(x.what, 120), q = x.qty === '' || x.qty == null ? 1 : Math.round(Number(x.qty) * 100) / 100, p = Math.round(Number(x.price) * 100) / 100;
@@ -160,11 +167,13 @@ function finApply(db, u, op, nowIso, store, info) {
   if (t === 'req_new') {
     if (!finCanAskFor(u, d.section)) return fail('section');
     if (!d.id || finFind(db.requests, d.id)) return fail('id');
-    var what = finText(d.what, 160), amount = Number(d.amount), bundle = null, month = '', ppl = 0;
+    var what = finText(d.what, 160), amount = Number(d.amount), bundle = null, month = '', ppl = 0, toRev = false;
     if (d.items && !d.month) {
-      /* several items in one request, each on its budget line */
-      bundle = finItems(d.items, true); if (!bundle) return fail('items');
-      amount = bundle.sum; finItemLine(bundle, d);
+      /* several items in one request, each on its budget line; without the lines the request goes to the reviewer */
+      bundle = finItems(d.items, true, finReviewOn(s)); if (!bundle) return fail('items');
+      toRev = finOpenLines(bundle.items);
+      if (toRev && finReviews(u, d.section)) return fail('line');
+      amount = bundle.sum; if (toRev) { d.line = ''; d.lineName = ''; } else finItemLine(bundle, d);
       ppl = finPeople(d.people); if (ppl < 0) return fail('food');
     } else if (d.items) {
       /* one request for the whole month of a section */
@@ -179,7 +188,7 @@ function finApply(db, u, op, nowIso, store, info) {
     if (food) amount = Math.round(food.qty * food.price * 100) / 100;
     if (!what) return fail('what');
     if (!(amount > 0) || amount > 100000000) return fail('amount');
-    if (!d.line) return fail('line');
+    if (!d.line && !toRev) return fail('line');
     if (['P1', 'P2', 'P3'].indexOf(d.prio) < 0) return fail('prio');
     if (!finIsDate(d.needed)) return fail('date');
     var created = finIsDate(d.created) && d.created <= today && finDayNum(today) - finDayNum(d.created) <= 30 ? d.created : today;
@@ -190,12 +199,12 @@ function finApply(db, u, op, nowIso, store, info) {
     if (emergency && (!finText(d.reason) || !finText(d.why))) return fail('reason');
     db.seq++;
     r = { id: String(d.id), no: 'R' + ('000' + db.seq).slice(-4), section: String(d.section), what: what, amount: Math.round(amount * 100) / 100,
-      line: String(d.line), lineName: finText(d.lineName, 120), prio: d.prio, needed: d.needed, pay: d.pay === 'cash' ? 'cash' : 'bank',
+      line: String(d.line || ''), lineName: finText(d.lineName, 120), prio: d.prio, needed: d.needed, pay: d.pay === 'cash' ? 'cash' : 'bank',
       created: created, received: nowIso, notice: notice, emergency: emergency, reason: emergency ? finText(d.reason, 60) : '', why: emergency ? finText(d.why, 200) : '',
-      by: u.id, byName: u.name, byRole: u.role, status: 'Waiting', decidedBy: '', decidedAt: '', note: '', week: '', paidBy: '', paidAt: '',
+      by: u.id, byName: u.name, byRole: u.role, status: toRev ? 'Review' : 'Waiting', selfRev: !toRev && finReviewOn(s) && finReviews(u, d.section) && !planKey, decidedBy: '', decidedAt: '', note: '', week: '', paidBy: '', paidAt: '',
       receipt: false, receiptBy: '', receiptAt: '', quoteFile: saveFile(d.photo, 'quotation-' + d.id), receiptFile: '', deadline: d.deadline ? String(d.deadline) : '', plan: planKey, month: month, people: ppl, items: bundle ? bundle.items : null, food: food || null, parts: bundle ? null : finParts(d.parts, Math.round(amount * 100) / 100) };
     db.requests.push(r);
-    touched(r, 'New request', what + ' K' + r.amount + (emergency ? ' EMERGENCY' : ''));
+    touched(r, toRev ? 'New request, to review' : 'New request', what + ' K' + r.amount + (emergency ? ' EMERGENCY' : ''));
     if (r.deadline) {
       x = finFind(db.deadlines, r.deadline);
       if (x && !x.deleted) { if (x.repeat === 'monthly') x.date = finAddMonth(x.date); else x.asked = r.id; bump(x); }
@@ -229,7 +238,8 @@ function finApply(db, u, op, nowIso, store, info) {
     if (d.noticeDays != null) { var nd = Math.round(Number(d.noticeDays)); if (!(nd >= 0 && nd <= 30)) return fail('fields'); s.noticeDays = nd; }
     if (d.approvalDay != null) { var ad = Math.round(Number(d.approvalDay)); if (!(ad >= 1 && ad <= 5)) return fail('fields'); s.approvalDay = ad; }
     if (d.countFrom != null) { if (!finIsDate(d.countFrom)) return fail('fields'); s.countFrom = d.countFrom; }
-    bump(s); audit('Rules changed', JSON.stringify({ noticeDays: s.noticeDays, approvalDay: s.approvalDay, countFrom: s.countFrom }));
+    if (d.review != null) s.review = d.review === true || d.review === 'yes';
+    bump(s); audit('Rules changed', JSON.stringify({ noticeDays: s.noticeDays, approvalDay: s.approvalDay, countFrom: s.countFrom, review: finReviewOn(s) }));
     return { ok: true };
   }
   /* the spending plan comes from the budget; here the management changes the rule of one line, or says which sections send a monthly request */
@@ -329,7 +339,7 @@ function finApply(db, u, op, nowIso, store, info) {
       var others = 0; for (var i = 0; i < db.users.length; i++) if (db.users[i] !== x && db.users[i].admin && db.users[i].active !== false) others++;
       if (!others) return fail('last_admin');
     }
-    x.name = nm; x.title = finText(d.title, 40); x.role = d.role; x.sections = (d.sections || []).map(String); x.admin = !!d.admin; x.active = d.active !== false;
+    x.name = nm; x.title = finText(d.title, 40); x.role = d.role; x.sections = (d.sections || []).map(String); x.reviews = (d.reviews || []).map(String).filter(function (p) { return p === 'S' || p === 'C'; }); x.admin = !!d.admin; x.active = d.active !== false;
     if (d.salt && d.cred) { x.salt = String(d.salt); x.cred = String(d.cred); x.fails = 0; x.lockUntil = ''; }
     bump(x); audit('Person saved', nm + ' (' + x.role + ')');
     return { ok: true };
@@ -361,23 +371,56 @@ function finApply(db, u, op, nowIso, store, info) {
     return { ok: true };
   }
 
+  if (t === 'req_wipe') {
+    if (!u.admin) return fail('role');
+    if (d.confirm !== 'DELETE') return fail('fields');
+    var gone = db.requests; db.requests = []; db.seq = 0;
+    for (var wi = 0; wi < db.deadlines.length; wi++) if (db.deadlines[wi].asked) { db.deadlines[wi].asked = ''; bump(db.deadlines[wi]); }
+    bump(s); s.wipeRev = db.rev;
+    if (info) info.wipe = gone;
+    audit('All requests deleted', gone.length + (gone.length === 1 ? ' request' : ' requests'));
+    return { ok: true };
+  }
+
   /* everything below changes one request */
   r = finFind(db.requests, d.id);
   if (!r) return fail('id');
   if (t === 'req_cancel') {
     if (r.by !== u.id && !finHasSection(u, r.section)) return fail('role');
-    if (r.status !== 'Waiting' && r.status !== 'Next week' && r.status !== 'To revise') return fail('status');
+    if (r.status !== 'Waiting' && r.status !== 'Next week' && r.status !== 'To revise' && r.status !== 'Review') return fail('status');
     r.status = 'Cancelled'; touched(r, 'Cancelled', '');
     if (r.deadline) { x = finFind(db.deadlines, r.deadline); if (x && x.asked === r.id) { x.asked = ''; bump(x); } }
     return { ok: true };
   }
+  /* the reviewer checks a request, gives each item its budget line (or says it is not in the budget) and sends it to the Director; or sends it back */
+  if (t === 'req_review') {
+    if (!finReviews(u, r.section) || r.by === u.id) return fail('role');
+    if (r.status !== 'Review' || !r.items) return fail('status');
+    if (d.back) {
+      if (!finText(d.note)) return fail('note');
+      r.status = 'To revise'; r.note = finText(d.note, 200); r.noteBy = 'review'; r.decidedBy = u.name; r.decidedAt = nowIso;
+      touched(r, 'Sent back by the reviewer', r.note);
+      return { ok: true };
+    }
+    var ls = d.lines || [];
+    if (ls.length !== r.items.length) return fail('line');
+    for (var li = 0; li < ls.length; li++) if (!ls[li] || !ls[li].line) return fail('line');
+    for (li = 0; li < ls.length; li++) { r.items[li].line = String(ls[li].line); r.items[li].lineName = finText(ls[li].lineName, 120); }
+    var rl = {}; finItemLine({ items: r.items }, rl); r.line = rl.line; r.lineName = rl.lineName;
+    if (['P1', 'P2', 'P3'].indexOf(d.prio) >= 0) r.prio = d.prio;
+    r.revBy = u.name; r.revAt = nowIso; r.revNote = finText(d.note, 200);
+    r.status = 'Waiting'; r.note = ''; r.noteBy = ''; r.decidedBy = ''; r.decidedAt = '';
+    touched(r, 'Reviewed', r.lineName + (r.revNote ? ': ' + r.revNote : ''));
+    return { ok: true };
+  }
   if (t === 'decide') {
     if (u.role !== 'director') return fail('role');
+    if (r.status === 'Review') return fail('status');
     if (['Approved', 'Next week', 'Not approved', 'Waiting', 'To revise'].indexOf(d.status) < 0) return fail('fields');
     if (r.status === 'Paid' || r.status === 'Cancelled') return fail('status');
     if (r.pays && r.pays.length) return fail('status');      /* a part is already paid: the decision stays */
     if (d.status === 'To revise' && !finText(d.note)) return fail('note');
-    r.status = d.status; r.note = finText(d.note, 200);
+    r.status = d.status; r.note = finText(d.note, 200); r.noteBy = '';
     if (d.status !== 'Approved') r.payOn = '';
     r.decidedBy = d.status === 'Waiting' ? '' : u.name; r.decidedAt = d.status === 'Waiting' ? '' : nowIso;
     r.week = d.status === 'Approved' ? finWeekKey(today) : '';
@@ -388,15 +431,15 @@ function finApply(db, u, op, nowIso, store, info) {
   if (t === 'req_edit') {
     if (r.by !== u.id && !finCanAskFor(u, r.section)) return fail('role');
     if (r.status !== 'To revise') return fail('status');
-    var what2 = finText(d.what, 160), amount2 = Number(d.amount), bundle2 = null, ppl2 = 0;
+    var what2 = finText(d.what, 160), amount2 = Number(d.amount), bundle2 = null, ppl2 = 0, toRev2 = false;
     if (r.month) { bundle2 = finItems(d.items); if (!bundle2) return fail('amount'); amount2 = bundle2.sum; d.line = 'monthly'; d.lineName = bundle2.items.length + (bundle2.items.length === 1 ? ' budget line' : ' budget lines'); }
-    else if (d.items) { bundle2 = finItems(d.items, true); if (!bundle2) return fail('items'); amount2 = bundle2.sum; finItemLine(bundle2, d); ppl2 = finPeople(d.people); if (ppl2 < 0) return fail('food'); }
+    else if (d.items) { bundle2 = finItems(d.items, true, finReviewOn(s)); if (!bundle2) return fail('items'); amount2 = bundle2.sum; toRev2 = finOpenLines(bundle2.items); if (toRev2) { d.line = ''; d.lineName = ''; } else finItemLine(bundle2, d); ppl2 = finPeople(d.people); if (ppl2 < 0) return fail('food'); }
     var food2 = bundle2 ? null : finFood(d.food);
     if (food2 === false) return fail('food');
     if (food2) amount2 = Math.round(food2.qty * food2.price * 100) / 100;
     if (!what2) return fail('what');
     if (!(amount2 > 0) || amount2 > 100000000) return fail('amount');
-    if (!d.line) return fail('line');
+    if (!d.line && !toRev2) return fail('line');
     if (['P1', 'P2', 'P3'].indexOf(d.prio) < 0) return fail('prio');
     if (!finIsDate(d.needed)) return fail('date');
     var notice2 = finWorkDays(r.created, d.needed), em2 = notice2 < s.noticeDays;
@@ -404,10 +447,11 @@ function finApply(db, u, op, nowIso, store, info) {
     if (em2 && (!reason2 || !why2)) return fail('reason');
     r.items = bundle2 ? bundle2.items : null; r.people = ppl2;
     r.food = food2 || null; r.parts = bundle2 ? null : finParts(d.parts, Math.round(amount2 * 100) / 100);
-    r.what = what2; r.amount = Math.round(amount2 * 100) / 100; r.line = String(d.line); r.lineName = finText(d.lineName, 120); r.prio = d.prio; r.needed = d.needed;
+    r.what = what2; r.amount = Math.round(amount2 * 100) / 100; r.line = String(d.line || ''); r.lineName = finText(d.lineName, 120); r.prio = d.prio; r.needed = d.needed;
     r.pay = d.pay === 'cash' ? 'cash' : 'bank'; r.notice = notice2; r.emergency = em2; r.reason = em2 ? reason2 : ''; r.why = em2 ? why2 : '';
     var q2 = saveFile(d.photo, 'quotation-' + r.id + '-' + ((r.revised || 0) + 1)); if (q2) r.quoteFile = q2;
-    r.status = 'Waiting'; r.revised = (r.revised || 0) + 1; r.revisedAt = nowIso; r.askedNote = r.note; r.decidedBy = ''; r.decidedAt = ''; r.week = '';
+    r.status = toRev2 ? 'Review' : 'Waiting'; r.revised = (r.revised || 0) + 1; r.revisedAt = nowIso; r.askedNote = r.note; r.askedBy = r.noteBy === 'review' ? r.decidedBy : ''; r.decidedBy = ''; r.decidedAt = ''; r.week = '';
+    if (toRev2) { r.revBy = ''; r.revAt = ''; r.revNote = ''; }
     touched(r, 'Sent again after revision', what2 + ' K' + r.amount);
     return { ok: true };
   }
@@ -543,7 +587,7 @@ function finHandle(req, store) {
   }
   if (dirty) store.save(db, info);
 
-  var since = Number(req.since) || 0, full = since === 0 || (u.rev || 0) > since, out = { ok: true, results: results, rev: db.rev, full: full, now: now, me: finPublicUser(u) };
+  var since = Number(req.since) || 0, full = since === 0 || (u.rev || 0) > since || (db.settings.wipeRev || 0) > since, out = { ok: true, results: results, rev: db.rev, full: full, now: now, me: finPublicUser(u) };
   if (full) since = 0;
   out.users = []; out.requests = []; out.deadlines = []; out.comments = [];
   for (i = 0; i < db.users.length; i++) if ((db.users[i].rev || 0) > since) out.users.push(finPublicUser(db.users[i]));
@@ -622,6 +666,11 @@ function store_() {
       if (id) DriveApp.getFileById(id).setContent(text); else P.setProperty('dbId', f.createFile(DB_FILE, text, 'application/json').getId());
       var day = new Date().toISOString().slice(0, 10);
       if (P.getProperty('backupDay') !== day) { f.createFile('cyp-fin-backup-' + day + '.json', text, 'application/json'); P.setProperty('backupDay', day); }
+      if (info && info.wipe) {
+        /* the administrator deleted all the requests: a copy stays on Drive and the sheet is emptied */
+        f.createFile('cyp-fin-requests-deleted-' + Utilities.formatDate(new Date(), 'Africa/Lusaka', 'yyyy-MM-dd-HHmm') + '.json', JSON.stringify(info.wipe), 'application/json');
+        var rs = sheet_('requests', REQ_HEAD); if (rs.getLastRow() > 1) rs.getRange(2, 1, rs.getLastRow() - 1, rs.getMaxColumns()).clearContent();
+      }
       if (info) { mirror_(info.requests || []); audit_(info.audit || []); comments_(info.comments || []); }
     },
     saveFile: function (name, mime, b64) { return photos_().createFile(Utilities.newBlob(Utilities.base64Decode(b64), mime, name + '.jpg')).getId(); },
