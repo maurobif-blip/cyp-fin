@@ -79,6 +79,7 @@ svg.ic{width:22px;height:22px;fill:none;stroke:currentColor;stroke-width:2;strok
 .sheet{width:100%;max-width:560px;max-height:92%;overflow:auto;background:var(--ground);border-radius:16px 16px 0 0;padding:16px;display:flex;flex-direction:column;gap:14px}
 .list{display:flex;flex-direction:column;gap:10px}
 .user{min-height:60px;justify-content:space-between;text-align:left;width:100%}
+.user.stream{min-height:84px;justify-content:flex-start;gap:14px;font-size:19px}.user.stream .ic{width:30px;height:30px;flex:none}
 .checks{display:grid;grid-template-columns:1fr 1fr;gap:6px}
 .checks label{display:flex;align-items:center;gap:8px;min-height:40px;font-weight:400}
 .checks input{width:22px;height:22px}
@@ -151,7 +152,7 @@ body{padding-top:env(safe-area-inset-top)}
 <script src="core.js"></script>
 <script>
 'use strict';
-var FIN_VERSION = 'alpha 0.19';
+var FIN_VERSION = 'alpha 0.20';
 
 /* ================= small tools ================= */
 function esc(s) { return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]; }); }
@@ -796,8 +797,17 @@ function scrFirst() {
     (S.ui.err ? '<div class="box err" role="alert">' + esc(S.ui.err) + '</div>' : '') +
     '<button type="button" class="btn pri big" data-a="firstAdmin">Start</button></div></main>';
 }
+/* the first screen: what the person came to do. Then only the people who do that are listed */
+var STREAMS = [['ask', 'Send a request', 'send'], ['review', 'Review', 'mine'], ['approve', 'Approve', 'decide']];
+function streamPeople(k) {
+  var l = S.users.filter(function (u) { return u.active !== false; });
+  if (k === 'ask') l = l.filter(function (u) { return (u.sections || []).length > 0 || u.role === 'accountant'; });
+  else if (k === 'review') l = l.filter(function (u) { return (u.reviews || []).length > 0; });
+  else if (k === 'approve') l = l.filter(function (u) { return u.role === 'director'; });
+  return l.sort(byPosition);
+}
 function scrLogin() {
-  var list = S.users.filter(function (u) { return u.active !== false; }).sort(byPosition);
+  var list = streamPeople(S.ui.stream || 'all');
   var h = '<main>';
   if (S.ui.msg) h += '<div class="box warn">' + esc(S.ui.msg) + '</div>';
   if (S.ui.pick) {
@@ -805,13 +815,21 @@ function scrLogin() {
     h += '<h1>Hello ' + esc(u.name) + '</h1><div class="s m">' + esc(titleOf(u)) + '</div><div class="card">' + field('Your PIN', 'lg-pin', input('lg-pin', 'pin', S.ui.form.pin, 'password', 'inputmode="numeric" autocomplete="off"'), S.cfg.mode === 'demo' ? 'Demo PIN: 1111' : '') +
       (S.ui.err ? '<div class="box err" role="alert">' + esc(S.ui.err) + '</div>' : '') +
       '<button type="button" class="btn pri big" data-a="login">Enter</button><button type="button" class="btn" data-a="back">Back</button></div>';
-  } else {
-    h += '<h1>Who are you?</h1>';
-    if (!list.length) h += '<div class="box warn">The list of people is not on this phone yet. Open the app once with internet.</div>';
-    h += '<div class="list">' + list.map(function (x) { return '<button type="button" class="btn user" data-a="pickUser" data-id="' + esc(x.id) + '">' + userLabel(x) + '</button>'; }).join('') + '</div>';
+  } else if (!S.ui.stream) {
+    h += '<h1>What do you need to do?</h1>';
+    if (!S.users.length) h += '<div class="box warn">The list of people is not on this phone yet. Open the app once with internet.</div>';
+    h += '<div class="list">' + STREAMS.map(function (st) {
+      var ppl = streamPeople(st[0]), names = st[0] !== 'ask' && ppl.length && ppl.length <= 3 ? ppl.map(function (u) { return u.name; }).join(' · ') : '';
+      return '<button type="button" class="btn user stream" id="st-' + st[0] + '" data-a="stream" data-id="' + st[0] + '">' + ic(st[2]) + '<span><span class="b" style="display:block">' + st[1] + '</span>' + (names ? '<span class="s m" style="display:block;font-weight:400">' + esc(names) + '</span>' : '') + '</span></button>';
+    }).join('') + '</div><button type="button" class="btn" id="st-all" data-a="stream" data-id="all">Pay and other</button>';
     if (S.cfg.mode === 'demo' && S.shared) h += '<button type="button" class="btn" data-a="leaveDemo">Leave the demo</button>';
     else h += '<button type="button" class="btn" data-a="forget">Use another link</button>';
     if (S.cfg.mode === 'shared') h += '<button type="button" class="btn" data-a="demo">Try the demo</button><div class="s m">Invented data.</div>';
+  } else {
+    h += '<div class="row" style="align-items:center"><h1>Who are you?</h1><button type="button" class="btn" data-a="streamBack">Back</button></div>';
+    if (!S.users.length) h += '<div class="box warn">The list of people is not on this phone yet. Open the app once with internet.</div>';
+    else if (!list.length) h += '<div class="box warn" id="st-none">No person does this yet. The administrator sets it in People and PINs.</div>';
+    h += '<div class="list">' + list.map(function (x) { return '<button type="button" class="btn user" data-a="pickUser" data-id="' + esc(x.id) + '">' + userLabel(x) + '</button>'; }).join('') + '</div>';
   }
   return h + '<div class="s m center">CYP FIN ' + FIN_VERSION + '</div></main>';
 }
@@ -1501,7 +1519,11 @@ function enter(u, cred) {
   S.me = u; S.cred = cred; remember();
   return KV.get('cache:' + u.id).then(function (c) {
     S.cache = c || emptyCache(); fresh();
-    var t = tabsFor(); S.ui = { screen: 'main', tab: t[0][0], form: {}, modal: null, m: {}, month: '', pick: null, err: '', msg: '' };
+    /* the person lands on what was chosen on the first screen */
+    var t = tabsFor(), want = { ask: 'new', review: 'review', approve: 'decide' }[S.stream || ''], first = t[0][0];
+    if (want === 'review' ? iReview() : !!want && t.some(function (x) { return x[0] === want; })) first = want;
+    S.stream = '';
+    S.ui = { screen: 'main', tab: first, form: {}, modal: null, m: {}, month: '', pick: null, err: '', msg: '' };
     render(); return sync();
   });
 }
@@ -1517,7 +1539,7 @@ function startWith(cfg) {
   S.cfg = cfg; KV.set('cfg', cfg); carryLink();
   if (cfg.mode === 'shared') { S.shared = { url: cfg.url, key: cfg.key }; KV.set('shared', S.shared); sendDemoComments(); }
   return hello().then(function (res) {
-    S.ui.screen = res && res.ok && res.empty ? 'first' : 'login'; S.ui.form = {}; S.ui.err = '';
+    S.ui.screen = res && res.ok && res.empty ? 'first' : 'login'; S.ui.form = {}; S.ui.err = ''; S.ui.stream = ''; S.ui.pick = null;
     var ses = null; try { ses = JSON.parse(sessionStorage.getItem('fin-session') || 'null'); } catch (e) {}
     var u = ses ? finFind(S.users, ses.id) : null;
     if (u && S.ui.screen === 'login') return enter(u, ses.cred);
@@ -1797,7 +1819,14 @@ var H = {
     }).catch(function () { S.ui.err = 'No internet. Try again.'; render(); });
   },
   pickUser: function (el) { S.ui.pick = finFind(S.users, el.dataset.id); S.ui.form = {}; S.ui.err = ''; S.ui.msg = ''; S.ui.keepScroll = false; render(); var p = document.getElementById('lg-pin'); if (p) p.focus(); },
-  back: function () { S.ui.pick = null; S.ui.err = ''; render(); },
+  back: function () { S.ui.pick = null; S.ui.err = ''; if (S.ui.one) { S.ui.stream = ''; S.ui.one = false; } render(); },
+  stream: function (el) {
+    var k = el.dataset.id, l = streamPeople(k); S.ui.stream = k; S.stream = k; S.ui.one = false; S.ui.err = ''; S.ui.msg = ''; S.ui.keepScroll = false;
+    /* one person only does this: straight to the PIN */
+    if (k !== 'all' && l.length === 1) { S.ui.pick = l[0]; S.ui.one = true; S.ui.form = {}; }
+    render(); var p = document.getElementById('lg-pin'); if (p) p.focus();
+  },
+  streamBack: function () { S.ui.stream = ''; S.ui.pick = null; S.ui.err = ''; S.ui.keepScroll = false; render(); },
   login: function () {
     var u = S.ui.pick, pin = S.ui.form.pin, cred = credOf(u.salt, pin || '');
     if (!pinOk(pin)) { S.ui.err = 'Write your PIN.'; return render(); }
