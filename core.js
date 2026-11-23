@@ -56,7 +56,8 @@ function finFind(list, id) { for (var i = 0; i < list.length; i++) if (list[i].i
 function finHasSection(u, code) { return (u.sections || []).indexOf(code) >= 0; }
 function finSeesAll(u) { return u.role === 'director' || u.role === 'accountant' || u.role === 'viewer' || !!u.admin; }
 function finSeesRequest(u, r) { return finSeesAll(u) || finHasSection(u, r.section) || r.by === u.id || finReviews(u, r.section); }
-function finCanAskFor(u, code) { return finHasSection(u, code) || u.role === 'accountant'; }
+/* a Section head with no department set on the person asks for any department and says which one on the request */
+function finCanAskFor(u, code) { return finHasSection(u, code) || u.role === 'accountant' || (u.role === 'head' && !(u.sections || []).length); }
 /* the dates of the agenda are kept by the Accountant, the Director and the administrator; a section head sees them and asks */
 function finCanDeadline(u, code) { return u.role === 'director' || u.role === 'accountant' || !!u.admin; }
 /* The comments a version answered. Each line: what to write on the comment, who wrote it ('' = anyone), its first words ('' = any),
@@ -66,10 +67,13 @@ var FIN_ANSWERED = [
   ['test comment', 'Claude (test)', 'Test comment from the demo', '', ''],
   ['answered in alpha 0.5', '', '', '2026-11-16T08:30:00.000Z', '2026-11-16T13:00:00.000Z'],
   ['answered in alpha 0.9', '', '', '2026-11-16T13:00:00.000Z', '2026-11-17T09:00:00.000Z'],
-  ['answered in alpha 0.12', '', '', '2026-11-17T09:00:00.000Z', '2026-11-17T12:00:00.000Z'],
-  ['answered in alpha 0.14', '', '', '2026-11-17T12:00:00.000Z', '2026-11-17T12:20:00.000Z'],
+  ['answered in alpha 0.12', '', '', '2026-11-17T09:00:00.000Z', '2026-11-17T13:00:00.000Z'],
+  ['answered in alpha 0.14', '', '', '2026-11-17T13:00:00.000Z', '2026-11-17T13:20:00.000Z'],
   ['answered in alpha 0.23', 'Ana', 'I want only 4 roles', '2026-11-23T00:00:00.000Z', '2026-11-24T00:00:00.000Z'],
-  ['answered in alpha 0.23', 'Ana', 'Instead of accountant', '2026-11-23T00:00:00.000Z', '2026-11-24T00:00:00.000Z']
+  ['answered in alpha 0.23', 'Ana', 'Instead of accountant', '2026-11-23T00:00:00.000Z', '2026-11-24T00:00:00.000Z'],
+  ['answered in alpha 0.24', 'Ana', 'I don', '2026-11-23T11:30:00.000Z', '2026-11-23T13:30:00.000Z'],
+  ['answered in alpha 0.24', 'Ana', 'there is an issue, of when i create a user', '2026-11-23T11:30:00.000Z', '2026-11-23T13:30:00.000Z'],
+  ['answered in alpha 0.24', 'Ana', 'administrator should be able to see all', '2026-11-23T11:30:00.000Z', '2026-11-23T13:30:00.000Z']
 ];
 function finAnswer(db, nowIso) {
   var out = [], cs = db.comments || [], i, j;
@@ -242,6 +246,7 @@ function finApply(db, u, op, nowIso, store, info) {
     if (d.approvalDay != null) { var ad = Math.round(Number(d.approvalDay)); if (!(ad >= 1 && ad <= 5)) return fail('fields'); s.approvalDay = ad; }
     if (d.countFrom != null) { if (!finIsDate(d.countFrom)) return fail('fields'); s.countFrom = d.countFrom; }
     if (d.review != null) s.review = d.review === true || d.review === 'yes';
+    if (d.depts != null) s.depts = d.depts === true || d.depts === 'yes';
     bump(s); audit('Rules changed', JSON.stringify({ noticeDays: s.noticeDays, approvalDay: s.approvalDay, countFrom: s.countFrom, review: finReviewOn(s) }));
     return { ok: true };
   }

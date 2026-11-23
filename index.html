@@ -29,7 +29,7 @@ button{cursor:pointer}
 :focus-visible{outline:3px solid var(--em);outline-offset:2px}
 h1{margin:0;font-size:22px} h2{margin:8px 0 0;font-size:18px}
 #app{max-width:560px;margin:0 auto;min-height:100%;display:flex;flex-direction:column;background:var(--ground)}
-.demo{background:var(--demo);color:#1A1A1A;font-weight:700;font-size:14px;padding:8px 16px}
+.demo,.localbar{background:var(--demo);color:#1A1A1A;font-weight:700;font-size:14px;padding:8px 16px}
 .top{background:var(--card);border-bottom:1px solid var(--line);padding:10px calc(16px + env(safe-area-inset-right)) 10px calc(16px + env(safe-area-inset-left));display:flex;align-items:center;justify-content:space-between;gap:12px;position:sticky;top:0;z-index:5}
 .top .who{font-size:14px;font-weight:700;color:var(--muted);text-align:right}
 .net{font-size:13px;font-weight:700;padding:6px 16px;background:var(--warn-bg);color:var(--warn-ink)}
@@ -152,7 +152,7 @@ body{padding-top:env(safe-area-inset-top)}
 <script src="core.js"></script>
 <script>
 'use strict';
-var FIN_VERSION = 'alpha 0.23';
+var FIN_VERSION = 'alpha 0.24';
 
 /* ================= small tools ================= */
 function esc(s) { return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]; }); }
@@ -751,13 +751,15 @@ function roleText(u) {
   if (u.admin && u.role !== 'viewer') a.push('Administrator');
   return a.join(' · ');
 }
-function canAsk() { return S.me && (S.me.sections.length > 0 || S.me.role === 'accountant'); }
-function askSections() { return S.me.role === 'accountant' ? DEPT_CODES : S.me.sections; }
+function canAsk() { return S.me && (S.me.sections.length > 0 || S.me.role === 'accountant' || S.me.role === 'head'); }
+/* a Section head with no department set on the person chooses the department on each request */
+function askSections() { return S.me.role === 'accountant' || (S.me.role === 'head' && !S.me.sections.length) ? DEPT_CODES : S.me.sections; }
+function deptsOn() { return V().settings.depts === true; }
 function tabsFor() {
   var r = S.me.role, t = [];
   if (r === 'director' || r === 'viewer') t = [['over', 'Overview'], ['decide', 'To decide'], ['dead', 'Planned'], ['month', 'By section']];
   else if (r === 'accountant') t = (reviewOn() ? [['review', 'To review']] : []).concat([['pay', 'To pay'], ['rec', 'Receipts'], ['dead', 'Planned'], ['new', 'Ask']]);
-  else t = (iReview() ? [['review', 'To review']] : []).concat([['soon', 'Coming up'], ['new', 'New request'], ['mine', 'My requests']]);
+  else t = (iReview() ? [['review', 'To review']] : []).concat(S.me.sections.length ? [['soon', 'Coming up']] : [], [['new', 'New request'], ['mine', 'My requests']]);
   if (r === 'director' && canAsk()) t.push(['new', 'Ask']);
   t.push(['more', 'More']);
   return t;
@@ -765,6 +767,8 @@ function tabsFor() {
 function head() {
   var h = '';
   if (S.cfg && S.cfg.mode === 'demo') h += '<div class="demo">Demo: invented data. It stays on this phone.' + (S.shared ? ' Only your comments are sent.' : '') + '</div>';
+  /* a database kept on this device only: people, requests and comments written here reach nobody else */
+  if (S.cfg && S.cfg.mode === 'local') h += '<div class="localbar" id="local-bar">Test on this device only. Not the shared database.</div>';
   var talk = comCan() && !S.picking && !S.ui.modal ? '<button type="button" class="cbtn" data-a="comStart" aria-label="Comment on this screen" title="Comment">' + ic('talk') + '</button>' : '';
   h += '<div class="top">' + LOGO + '<div class="end">' + (S.me ? '<button type="button" class="who" data-a="whoMenu">' + esc(S.me.name) + '</button>' : '') + talk + '</div></div>';
   if (S.me) {
@@ -817,7 +821,7 @@ var STREAMS = [['ask', 'Send a request', 'send'], ['review', 'Review', 'mine'], 
 function streamName(k) { for (var i = 0; i < STREAMS.length; i++) if (STREAMS[i][0] === k) return STREAMS[i][1]; return 'Pay and other'; }
 function streamPeople(k) {
   var l = S.users.filter(function (u) { return u.active !== false; });
-  if (k === 'ask') l = l.filter(function (u) { return u.role === 'head' && (u.sections || []).length > 0; });
+  if (k === 'ask') l = l.filter(function (u) { return u.role === 'head'; });
   else if (k === 'review') l = l.filter(function (u) { return finRevParts(u).length > 0; });
   else if (k === 'approve') l = l.filter(function (u) { return u.role === 'director'; });
   else if (k === 'admin') l = l.filter(function (u) { return !!u.admin; });
@@ -1416,7 +1420,7 @@ function modal() {
   if (x.type === 'person') {
     h += '<h1>' + (x.id ? 'Change a person' : 'Add a person') + '</h1>' + mField('Position', 'pe-title', 'title', 'text', 'placeholder="Example: Head of Sport"') + mField('Name of the person', 'pe-name', 'name') +
       '<div class="field"><label for="pe-role">Role</label><select class="in" id="pe-role" data-m="role" data-r="1">' + options([['head', 'Section head'], ['accountant', 'Reviewer'], ['director', 'Director'], ['admin', 'Administrator']].concat(m.role === 'viewer' ? [['viewer', 'Can look']] : []), m.role || 'head') + '</select></div>' +
-      (m.role === 'head' || !m.role ? '<div class="field"><div class="lab">Departments this person asks for</div><div class="checks">' + DEPT_CODES.map(function (c) { return '<label><input type="checkbox" data-sec="' + c + '"' + ((m.sections || []).indexOf(c) >= 0 ? ' checked' : '') + '>' + esc(secName(c)) + (finPart(c) === 'C' ? ' (commercial)' : '') + '</label>'; }).join('') + '</div></div>' : '') +
+      (deptsOn() && (m.role === 'head' || !m.role) ? '<div class="field"><div class="lab">Departments this person asks for</div><div class="checks">' + DEPT_CODES.map(function (c) { return '<label><input type="checkbox" data-sec="' + c + '"' + ((m.sections || []).indexOf(c) >= 0 ? ' checked' : '') + '>' + esc(secName(c)) + (finPart(c) === 'C' ? ' (commercial)' : '') + '</label>'; }).join('') + '</div></div>' : '') +
       (m.role === 'accountant' ? '<div class="field"><div class="lab">Reviews the requests of</div><div class="checks"><label><input type="checkbox" data-rev="S"' + ((m.reviews || []).indexOf('S') >= 0 ? ' checked' : '') + '>The social part</label><label><input type="checkbox" data-rev="C"' + ((m.reviews || []).indexOf('C') >= 0 ? ' checked' : '') + '>The commercial part</label></div></div>' : '') +
       '<div class="checks"><label><input type="checkbox" data-m="active"' + (m.active !== false ? ' checked' : '') + '>Can enter</label></div>' +
       mField(x.id ? 'New PIN (leave empty to keep the PIN)' : 'PIN', 'pe-pin', 'pin', 'text', 'inputmode="numeric" autocomplete="off"', '4 to 8 numbers. Tell it to the person; they can change it.') + err +
@@ -1426,6 +1430,7 @@ function modal() {
     h += '<h1>Rules</h1>' + mField('Working days of notice', 'ru-days', 'noticeDays', 'number', 'min="0" max="30" inputmode="numeric"') +
       '<div class="field"><label for="ru-day">Day of the decisions</label><select class="in" id="ru-day" data-m="approvalDay">' + options([[1, 'Monday'], [2, 'Tuesday'], [3, 'Wednesday'], [4, 'Thursday'], [5, 'Friday']], m.approvalDay) + '</select></div>' +
       '<div class="field"><label for="ru-rev">Review before the Director</label><select class="in" id="ru-rev" data-m="review">' + options([['yes', 'Yes'], ['no', 'No']], m.review) + '</select></div>' +
+      '<div class="field"><label for="ru-depts">Departments set on each person</label><select class="in" id="ru-depts" data-m="depts">' + options([['no', 'No'], ['yes', 'Yes']], m.depts) + '</select></div>' +
       mField('Count the budget from', 'ru-from', 'countFrom', 'date', '', 'Requests needed before this date do not use the ' + FIN_BUDGET.year + ' budget.') + err + '<div class="btns"><button type="button" class="btn pri" data-a="rulesSave">Save</button>' + close + '</div>';
   }
   if (x.type === 'wipe') {
@@ -1698,7 +1703,7 @@ function approvedData() {
 }
 function dlHead() { return ['Section', 'What', 'Amount (K)', 'Needed on', 'Last day to ask', 'Late', 'Every month', 'Pay by', 'Budget line code', 'Budget line']; }
 function dlRow(x) { var d = deadlineView(x); return [secName(x.section), x.what, x.amount, x.date, d.askBy, d.late ? 'Late' : '', x.repeat ? 'Yes' : '', x.pay === 'cash' ? 'Cash' : 'Bank or mobile money', x.line === 'none' ? '' : (x.line || ''), x.lineName || '']; }
-function budgetSections() { return finSeesAll(S.me) ? FIN_BUDGET.sections : FIN_BUDGET.sections.filter(function (s) { return S.me.sections.indexOf(s.code) >= 0; }); }
+function budgetSections() { return finSeesAll(S.me) || !S.me.sections.length ? FIN_BUDGET.sections : FIN_BUDGET.sections.filter(function (s) { return S.me.sections.indexOf(s.code) >= 0; }); }
 /* what "Export in Excel" gives on each screen: what the screen shows, with the filters chosen */
 function exportSheets() {
   var v = V(), t = S.ui.tab, f = S.ui.form, w = weekInfo(), order = { P1: 1, P2: 2, P3: 3 }, out = [];
@@ -2110,8 +2115,8 @@ var H = {
     if (m.pin) { d.salt = uid(); d.cred = credOf(d.salt, m.pin); }
     var r = act('user_save', d); if (!r.ok) S.ui.merr = errText(r.error); else S.ui.modal = null; render();
   },
-  rules: function () { var s = V().settings; openModal({ type: 'rules' }, { noticeDays: s.noticeDays, approvalDay: s.approvalDay, countFrom: s.countFrom, review: finReviewOn(s) ? 'yes' : 'no' }); },
-  rulesSave: function () { var m = S.ui.m, r = act('set', { noticeDays: m.noticeDays, approvalDay: m.approvalDay, countFrom: m.countFrom, review: m.review !== 'no' }); if (!r.ok) S.ui.merr = errText(r.error); else S.ui.modal = null; render(); },
+  rules: function () { var s = V().settings; openModal({ type: 'rules' }, { noticeDays: s.noticeDays, approvalDay: s.approvalDay, countFrom: s.countFrom, review: finReviewOn(s) ? 'yes' : 'no', depts: s.depts === true ? 'yes' : 'no' }); },
+  rulesSave: function () { var m = S.ui.m, r = act('set', { noticeDays: m.noticeDays, approvalDay: m.approvalDay, countFrom: m.countFrom, review: m.review !== 'no', depts: m.depts === 'yes' }); if (!r.ok) S.ui.merr = errText(r.error); else S.ui.modal = null; render(); },
   pinOpen: function () { openModal({ type: 'pin' }, {}); },
   pinSave: function () {
     var m = S.ui.m;
