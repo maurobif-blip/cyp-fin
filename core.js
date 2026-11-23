@@ -5,12 +5,12 @@
 var FIN_STATUSES = ['Review', 'Waiting', 'To revise', 'Approved', 'Next week', 'Not approved', 'Paid', 'Cancelled'];
 var FIN_ROLES = ['head', 'director', 'accountant', 'viewer'];
 var FIN_TZ_MINUTES = 120; /* Zambia, UTC+2 */
-/* departments that ask but are not a section of the budget. The part says who reviews: S social (the Administrator), C commercial (the Accountant) */
+/* departments that ask but are not a section of the budget. The part says who reviews: S social (the Administrator), C commercial */
 var FIN_DEPTS = [['TRA', 'Transport', 'S'], ['MEW', 'Mechanics workshop', 'S'], ['MNT', 'Maintenance', 'S'], ['HRS', 'Human Resources', 'S'], ['MCP', 'Mary Christine', 'S'], ['HFH', 'Holy Family', 'S'], ['GIG', 'Gigi Bonta', 'C'], ['FRM', 'Farms', 'C']];
 function finPart(code) { for (var i = 0; i < FIN_DEPTS.length; i++) if (FIN_DEPTS[i][0] === code) return FIN_DEPTS[i][2]; return 'S'; }
 /* a request is reviewed before the Director sees it: the reviewer gives it its budget lines */
 function finReviewOn(s) { return !s || s.review !== false; }
-function finRevParts(u) { var p = (u.reviews || []).slice(); if (u.role === 'accountant' && p.indexOf('C') < 0) p.push('C'); return p; }
+function finRevParts(u) { var p = (u.reviews || []).slice(); if (u.role === 'accountant' && !p.length) p.push('C'); return p; }
 function finReviews(u, code) { return finRevParts(u).indexOf(finPart(code)) >= 0; }
 function finOpenLines(items) { for (var i = 0; i < (items || []).length; i++) if (!items[i].line) return true; return false; }
 
@@ -67,7 +67,9 @@ var FIN_ANSWERED = [
   ['answered in alpha 0.5', '', '', '2026-11-16T08:30:00.000Z', '2026-11-16T13:00:00.000Z'],
   ['answered in alpha 0.9', '', '', '2026-11-16T13:00:00.000Z', '2026-11-17T09:00:00.000Z'],
   ['answered in alpha 0.12', '', '', '2026-11-17T09:00:00.000Z', '2026-11-17T12:00:00.000Z'],
-  ['answered in alpha 0.14', '', '', '2026-11-17T12:00:00.000Z', '2026-11-17T12:20:00.000Z']
+  ['answered in alpha 0.14', '', '', '2026-11-17T12:00:00.000Z', '2026-11-17T12:20:00.000Z'],
+  ['answered in alpha 0.23', 'Ana', 'I want only 4 roles', '2026-11-23T00:00:00.000Z', '2026-11-24T00:00:00.000Z'],
+  ['answered in alpha 0.23', 'Ana', 'Instead of accountant', '2026-11-23T00:00:00.000Z', '2026-11-24T00:00:00.000Z']
 ];
 function finAnswer(db, nowIso) {
   var out = [], cs = db.comments || [], i, j;

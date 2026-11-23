@@ -152,7 +152,7 @@ body{padding-top:env(safe-area-inset-top)}
 <script src="core.js"></script>
 <script>
 'use strict';
-var FIN_VERSION = 'alpha 0.22';
+var FIN_VERSION = 'alpha 0.23';
 
 /* ================= small tools ================= */
 function esc(s) { return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]; }); }
@@ -593,7 +593,7 @@ function lastMonth(id, ref) {
   });
   return { ym: ym, sum: sum, any: any, back: Math.round((given - spent) * 100) / 100 };
 }
-/* the Accountant asks for a section only as an exception: those requests are marked. Fixed costs are his to send. */
+/* the Reviewer asks for a section only as an exception: those requests are marked. Fixed costs are his to send. */
 function roleOf(r) { if (r.byRole) return r.byRole; for (var i = 0; i < S.users.length; i++) if (S.users[i].id === r.by) return S.users[i].role; return ''; }
 function isFixedReq(r) { return !r.items && !!LINE[r.line] && lineFixed(LINE[r.line]); }
 function accAsked(r) { return roleOf(r) === 'accountant' && !isFixedReq(r); }
@@ -733,7 +733,7 @@ function reqNo(r) { return r.no ? esc(r.no) : 'Not sent yet'; }
 /* the position of a person, shown first at sign in: it stays when the person changes */
 function titleOf(u) {
   if (u.title) return u.title;
-  if (u.role === 'director') return 'Director'; if (u.role === 'accountant') return 'Accountant';
+  if (u.role === 'director') return 'Director'; if (u.role === 'accountant') return 'Reviewer';
   if (u.role === 'viewer') return u.admin ? 'Administrator' : 'Can look';
   var s = (u.sections || []).map(secName);
   return s.length ? 'Head: ' + s.slice(0, 2).join(', ') + (s.length > 2 ? ' and ' + (s.length - 2) + ' more' : '') : 'Section head';
@@ -743,11 +743,12 @@ function byPosition(a, b) { var x = ROLE_ORDER[a.role] - ROLE_ORDER[b.role]; if 
 function userLabel(u) { return '<span><span class="b" style="display:block">' + esc(titleOf(u)) + '</span><span class="s m" style="display:block;font-weight:400">' + esc(u.name) + '</span></span>'; }
 function roleText(u) {
   var a = [];
-  if (u.role === 'director') a.push('Director'); if (u.role === 'accountant') a.push('Accountant'); if (u.role === 'viewer') a.push('Can look');
+  var rp = finRevParts(u).map(function (p) { return p === 'C' ? 'commercial' : 'social'; }).join(', ');
+  if (u.role === 'director') a.push('Director'); if (u.role === 'accountant') a.push('Reviewer: ' + rp); if (u.role === 'viewer') a.push(u.admin ? 'Administrator' : 'Can look');
   if ((u.sections || []).length) a.push((u.role === 'head' ? 'Head: ' : '') + u.sections.map(secName).join(', '));
   if (u.role === 'head' && !(u.sections || []).length) a.push('Section head');
-  if (finRevParts(u).length) a.push('Reviews: ' + finRevParts(u).map(function (p) { return p === 'C' ? 'commercial' : 'social'; }).join(', '));
-  if (u.admin) a.push('Administrator');
+  if (u.role !== 'accountant' && rp) a.push('Reviews: ' + rp);
+  if (u.admin && u.role !== 'viewer') a.push('Administrator');
   return a.join(' · ');
 }
 function canAsk() { return S.me && (S.me.sections.length > 0 || S.me.role === 'accountant'); }
@@ -755,7 +756,7 @@ function askSections() { return S.me.role === 'accountant' ? DEPT_CODES : S.me.s
 function tabsFor() {
   var r = S.me.role, t = [];
   if (r === 'director' || r === 'viewer') t = [['over', 'Overview'], ['decide', 'To decide'], ['dead', 'Planned'], ['month', 'By section']];
-  else if (r === 'accountant') t = [['pay', 'To pay'], ['rec', 'Receipts'], ['dead', 'Planned'], ['new', 'Ask']];
+  else if (r === 'accountant') t = (reviewOn() ? [['review', 'To review']] : []).concat([['pay', 'To pay'], ['rec', 'Receipts'], ['dead', 'Planned'], ['new', 'Ask']]);
   else t = (iReview() ? [['review', 'To review']] : []).concat([['soon', 'Coming up'], ['new', 'New request'], ['mine', 'My requests']]);
   if (r === 'director' && canAsk()) t.push(['new', 'Ask']);
   t.push(['more', 'More']);
@@ -806,7 +807,6 @@ function scrFirst() {
   var f = S.ui.form;
   return '<main><h1>First administrator</h1><div class="s m">Nobody is in the database yet. The first person adds the others.</div><div class="card">' +
     field('Your name', 'fa-name', input('fa-name', 'name', f.name)) +
-    field('Your role', 'fa-role', '<select class="in" id="fa-role" data-f="role">' + options([['viewer', 'Can look (administrator only)'], ['director', 'Director'], ['accountant', 'Accountant']], f.role || 'viewer') + '</select>') +
     field('Choose a PIN', 'fa-pin', input('fa-pin', 'pin', f.pin, 'password', 'inputmode="numeric" autocomplete="new-password"'), '4 to 8 numbers.') +
     field('Write the PIN again', 'fa-pin2', input('fa-pin2', 'pin2', f.pin2, 'password', 'inputmode="numeric" autocomplete="new-password"')) +
     (S.ui.err ? '<div class="box err" role="alert">' + esc(S.ui.err) + '</div>' : '') +
@@ -855,9 +855,9 @@ function reqCard(r, opt) {
   if (opt.sec) h += '<div class="wrap"><span class="sec">' + esc(secName(r.section)) + '</span><span class="tag">' + esc(r.prio) + '</span>' + (finPart(r.section) === 'C' ? '<span class="tag">Commercial</span>' : '') + '</div>';
   h += '<div class="row"><div class="b">' + esc(r.what) + '</div><div class="b num">' + money(r.amount) + '</div></div>';
   h += '<div class="s m">' + (opt.sec ? '' : esc(r.prio) + ' · ') + 'Needed ' + day(r.needed) + ' · ' + plural(r.notice, 'working day', 'working days') + ' notice · ' + payText(r) + '</div>';
-  if (accAsked(r)) h += '<div class="s b" style="color:var(--em-ink)">Asked by the Accountant for the section</div>';
+  if (accAsked(r)) h += '<div class="s b" style="color:var(--em-ink)">Asked by the Reviewer for the section</div>';
   else if (isFixedReq(r)) h += '<div class="s m">Fixed cost</div>';
-  if (r.selfRev) h += '<div class="s b" style="color:var(--em-ink)">Asked by the reviewer</div>';
+  if (r.selfRev && !accAsked(r)) h += '<div class="s b" style="color:var(--em-ink)">Asked by the reviewer</div>';
   if (r.food) h += '<div class="s num">' + foodText(r) + '</div>';
   var pdc = finPaid(r), npc = r.parts ? r.parts.length : 0;
   if (npc > 1 && r.status !== 'Paid' && r.status !== 'Cancelled' && r.status !== 'Not approved') h += '<div class="s num">In ' + npc + ' parts, from ' + day(r.parts[0].date) + ' to ' + day(r.parts[npc - 1].date) + '</div>';
@@ -1094,7 +1094,7 @@ function scrReview() {
 function scrOver() {
   var waiting = weekWaiting(), total = 0, em = 0, map = {}, tot = { P1: 0, P2: 0, P3: 0 }, accN = waiting.filter(accAsked).length, nr = notReviewed();
   waiting.forEach(function (r) { var p = tot[r.prio] != null ? r.prio : 'P3', x = map[r.section] || (map[r.section] = { P1: 0, P2: 0, P3: 0 }); total += r.amount; if (r.emergency) em++; x[p] += r.amount; tot[p] += r.amount; });
-  var h = '<main><h1>Overview</h1><div class="card"><div class="big num">' + waiting.length + ' waiting · ' + money(total) + '</div><div class="b" style="color:var(--em-ink)">' + em + ' sent as Emergency</div>' + (accN ? '<div class="b" id="over-acc">' + accN + ' asked by the Accountant for a section</div>' : '') + (nr.length ? '<div class="s b" id="over-rev">' + plural(nr.length, 'request', 'requests') + ' not reviewed yet · ' + money(sumOf(nr)) + '</div>' : '') + '</div>' +
+  var h = '<main><h1>Overview</h1><div class="card"><div class="big num">' + waiting.length + ' waiting · ' + money(total) + '</div><div class="b" style="color:var(--em-ink)">' + em + ' sent as Emergency</div>' + (accN ? '<div class="b" id="over-acc">' + accN + ' asked by the Reviewer for a section</div>' : '') + (nr.length ? '<div class="s b" id="over-rev">' + plural(nr.length, 'request', 'requests') + ' not reviewed yet · ' + money(sumOf(nr)) + '</div>' : '') + '</div>' +
     (canConfirm() && drafts().length ? '<button type="button" class="btn pri" id="over-plan" data-a="planOpen">Spending plan: ' + plural(drafts().length, 'change', 'changes') + ' to confirm</button>' : '') + weekPlan();
   h += '<div class="card"><table class="plan" id="plan-secs"><caption>Waiting by section, in Kwacha</caption><thead><tr><th scope="col">Section</th><th scope="col">P1</th><th scope="col">P2</th><th scope="col">P3</th><th scope="col">Total</th></tr></thead><tbody>';
   var codes = DEPT_CODES.filter(function (c) { return map[c]; }), com = codes.filter(function (c) { return finPart(c) === 'C'; });
@@ -1227,7 +1227,7 @@ function scrMonth() {
   return h + '</main>';
 }
 function scrPay() {
-  var v = V(), w = weekInfo(), can = S.me.role === 'accountant', end = finAddDays(w.key, 6), nrv = iReview() ? toReview().length : 0;
+  var v = V(), w = weekInfo(), can = S.me.role === 'accountant', end = finAddDays(w.key, 6), nrv = iReview() && !reviewOn() ? toReview().length : 0;
   var list = v.requests.filter(function (r) { return r.status === 'Approved'; }).map(function (r) { r._np = nextPart(r); return r; }).sort(function (a, b) { var x = a._np ? a._np.date : a.needed, y = b._np ? b._np.date : b.needed; return x < y ? -1 : x > y ? 1 : 0; });
   var wp = weekPays(w.key);
   var h = '<main><h1>To pay</h1>' + (nrv ? '<button type="button" class="btn pri" id="pay-review" data-a="tab" data-id="review">To review: ' + plural(nrv, 'request', 'requests') + '</button>' : '') + weekPlan();
@@ -1275,7 +1275,7 @@ function scrRec() {
 function scrMore() {
   var me = S.me, seesAll = finSeesAll(me), h = '<main><h1>More</h1><div class="card"><div class="b">' + esc(me.name) + '</div><div class="s m">' + esc(roleText(me)) + '</div><div class="btns"><button type="button" class="btn" data-a="pinOpen">' + ic('lock') + 'Change my PIN</button><button type="button" class="btn" data-a="signOutAsk">' + ic('out') + 'Sign out</button></div></div>';
   h += '<div class="list"><button type="button" class="btn user" data-a="allReqs">' + ic('mine') + '<span style="flex:1">' + (seesAll ? 'All requests' : 'All my requests') + '</span></button>';
-  if (iReview() && me.role !== 'head') h += '<button type="button" class="btn user" id="more-review" data-a="tab" data-id="review">' + ic('decide') + '<span style="flex:1">To review' + (toReview().length ? ' (' + toReview().length + ')' : '') + '</span></button>';
+  if (iReview() && me.role !== 'head' && !(me.role === 'accountant' && reviewOn())) h += '<button type="button" class="btn user" id="more-review" data-a="tab" data-id="review">' + ic('decide') + '<span style="flex:1">To review' + (toReview().length ? ' (' + toReview().length + ')' : '') + '</span></button>';
   if (me.admin) h += '<button type="button" class="btn user" data-a="people">' + ic('people') + '<span style="flex:1">People and PINs</span></button>';
   if (me.role === 'director' || me.admin) h += '<button type="button" class="btn user" data-a="rules">' + ic('rules') + '<span style="flex:1">Rules</span></button>';
   if (me.admin) { var nOpen = (V().comments || []).filter(function (c) { return !c.done; }).length; h += '<button type="button" class="btn user" data-a="comments">' + ic('talk') + '<span style="flex:1">Comments on the app' + (nOpen ? ' (' + nOpen + ')' : '') + '</span></button>'; }
@@ -1331,7 +1331,7 @@ function modal() {
     var r = finFind(V().requests, x.id); if (!r) { S.ui.modal = null; return ''; }
     var own = r.by === S.me.id || S.me.sections.indexOf(r.section) >= 0, acc = S.me.role === 'accountant';
     h += '<div class="row"><h1>' + reqNo(r) + '</h1>' + pill(r) + '</div><div class="card"><div class="wrap"><span class="sec">' + esc(secName(r.section)) + '</span><span class="tag">' + esc(r.prio) + '</span>' + (r.emergency ? '<span class="pill em">Emergency</span>' : '') + '</div><div class="row"><div class="b">' + esc(r.what) + '</div><div class="b num">' + money(r.amount) + '</div></div>' +
-      '<div class="s">Needed ' + day(r.needed) + ' · asked ' + day(r.created) + ' by ' + esc(r.byName) + (accAsked(r) ? ' (Accountant, for the section)' : '') + ' · ' + plural(r.notice, 'working day', 'working days') + ' notice · ' + payText(r) + '</div>' + (r.food ? '<div class="s num">' + foodText(r) + '</div>' : '') +
+      '<div class="s">Needed ' + day(r.needed) + ' · asked ' + day(r.created) + ' by ' + esc(r.byName) + (accAsked(r) ? ' (Reviewer, for the section)' : '') + ' · ' + plural(r.notice, 'working day', 'working days') + ' notice · ' + payText(r) + '</div>' + (r.food ? '<div class="s num">' + foodText(r) + '</div>' : '') +
       (r.emergency ? '<div class="s" style="color:var(--em-ink)">' + esc(r.reason) + ': ' + esc(r.why) + '</div>' : '') + '</div>' + (isRows(r) ? '<div class="card" id="rq-rows">' + rowsHtml(r) + '</div>' : '') + reqBoxes(r);
     if (r.items && r.month) { h += '<div class="card">'; r.items.forEach(function (it) { h += '<div class="row"><div>' + esc(LINE[it.line] ? LINE[it.line].name : it.lineName || it.line) + '</div><div class="num">' + money(it.amount) + '</div></div>'; }); h += '</div>'; }
     var hist = '';
@@ -1373,7 +1373,7 @@ function modal() {
       '<div class="field"><label for="pl-when">When in the month</label><select class="in" id="pl-when" data-m="when" data-r="1">' + options([['w1', 'Week 1'], ['w2', 'Week 2'], ['w3', 'Week 3'], ['w4', 'Week 4'], ['spread', 'Several times']], m.when) + '</select></div>' +
       (m.when === 'spread' ? mField('Times in the month', 'pl-times', 'times', 'number', 'min="1" max="8" inputmode="numeric"') : '') +
       mField('Amount each time, in Kwacha', 'pl-amount', 'amount', 'number', 'min="0" inputmode="decimal"') +
-      '<div class="field"><label for="pl-fixed">Who asks</label><select class="in" id="pl-fixed" data-m="fixed">' + options([['0', 'The section asks'], ['1', 'Fixed: the Accountant sends it']], m.fixed) + '</select></div>' +
+      '<div class="field"><label for="pl-fixed">Who asks</label><select class="in" id="pl-fixed" data-m="fixed">' + options([['0', 'The section asks'], ['1', 'Fixed: the Reviewer sends it']], m.fixed) + '</select></div>' +
       '<div class="field"><label for="pl-food">Ask people, quantity, price</label><select class="in" id="pl-food" data-m="food">' + options([['0', 'No'], ['1', 'Yes']], m.food) + '</select></div>' +
       '<div class="field"><label for="pl-prio">Priority</label><select class="in" id="pl-prio" data-m="prio">' + options([['P1', 'P1'], ['P2', 'P2'], ['P3', 'P3']], m.prio) + '</select></div>' + err +
       '<div class="btns"><button type="button" class="btn pri" data-a="planSave">' + (proposes() ? 'Send to the Director' : 'Save') + '</button>' + (x.own ? '<button type="button" class="btn" data-a="planReset">Back to the budget</button>' : '') + close + '</div>';
@@ -1415,10 +1415,10 @@ function modal() {
   }
   if (x.type === 'person') {
     h += '<h1>' + (x.id ? 'Change a person' : 'Add a person') + '</h1>' + mField('Position', 'pe-title', 'title', 'text', 'placeholder="Example: Head of Sport"') + mField('Name of the person', 'pe-name', 'name') +
-      '<div class="field"><label for="pe-role">Role</label><select class="in" id="pe-role" data-m="role">' + options([['head', 'Section head'], ['director', 'Director'], ['accountant', 'Accountant'], ['viewer', 'Can look']], m.role || 'head') + '</select></div>' +
-      '<div class="field"><div class="lab">Departments this person asks for</div><div class="checks">' + DEPT_CODES.map(function (c) { return '<label><input type="checkbox" data-sec="' + c + '"' + ((m.sections || []).indexOf(c) >= 0 ? ' checked' : '') + '>' + esc(secName(c)) + (finPart(c) === 'C' ? ' (commercial)' : '') + '</label>'; }).join('') + '</div></div>' +
-      '<div class="field"><div class="lab">Reviews the requests of</div><div class="checks"><label><input type="checkbox" data-rev="S"' + ((m.reviews || []).indexOf('S') >= 0 ? ' checked' : '') + '>The social part</label><label><input type="checkbox" data-rev="C"' + ((m.reviews || []).indexOf('C') >= 0 ? ' checked' : '') + '>The commercial part</label></div></div>' +
-      '<div class="checks"><label><input type="checkbox" data-m="admin"' + (m.admin ? ' checked' : '') + '>Administrator</label><label><input type="checkbox" data-m="active"' + (m.active !== false ? ' checked' : '') + '>Can enter</label></div>' +
+      '<div class="field"><label for="pe-role">Role</label><select class="in" id="pe-role" data-m="role" data-r="1">' + options([['head', 'Section head'], ['accountant', 'Reviewer'], ['director', 'Director'], ['admin', 'Administrator']].concat(m.role === 'viewer' ? [['viewer', 'Can look']] : []), m.role || 'head') + '</select></div>' +
+      (m.role === 'head' || !m.role ? '<div class="field"><div class="lab">Departments this person asks for</div><div class="checks">' + DEPT_CODES.map(function (c) { return '<label><input type="checkbox" data-sec="' + c + '"' + ((m.sections || []).indexOf(c) >= 0 ? ' checked' : '') + '>' + esc(secName(c)) + (finPart(c) === 'C' ? ' (commercial)' : '') + '</label>'; }).join('') + '</div></div>' : '') +
+      (m.role === 'accountant' ? '<div class="field"><div class="lab">Reviews the requests of</div><div class="checks"><label><input type="checkbox" data-rev="S"' + ((m.reviews || []).indexOf('S') >= 0 ? ' checked' : '') + '>The social part</label><label><input type="checkbox" data-rev="C"' + ((m.reviews || []).indexOf('C') >= 0 ? ' checked' : '') + '>The commercial part</label></div></div>' : '') +
+      '<div class="checks"><label><input type="checkbox" data-m="active"' + (m.active !== false ? ' checked' : '') + '>Can enter</label></div>' +
       mField(x.id ? 'New PIN (leave empty to keep the PIN)' : 'PIN', 'pe-pin', 'pin', 'text', 'inputmode="numeric" autocomplete="off"', '4 to 8 numbers. Tell it to the person; they can change it.') + err +
       '<div class="btns"><button type="button" class="btn pri" data-a="personSave">Save</button>' + close + '</div>';
   }
@@ -1538,7 +1538,12 @@ function enter(u, cred) {
     if (want === 'review' ? iReview() : !!want && t.some(function (x) { return x[0] === want; })) first = want;
     S.stream = '';
     S.ui = { screen: 'main', tab: first, form: {}, modal: null, m: {}, month: '', pick: null, err: '', msg: '' };
-    render(); return sync();
+    /* on a phone that enters for the first time the rules arrive with the first sync: if the first tab is gone by then, the person moves to the new first tab */
+    var auto = first === want ? '' : first;
+    render(); return Promise.resolve(sync()).then(function (r) {
+      if (auto && S.me && S.me.id === u.id && S.ui.screen === 'main' && S.ui.tab === auto && !S.ui.modal && !tabsFor().some(function (x) { return x[0] === auto; })) { S.ui.tab = tabsFor()[0][0]; render(); }
+      return r;
+    });
   });
 }
 function hello() {
@@ -1589,13 +1594,13 @@ function carryLink() {
 function cookieLink() { var m = /(?:^|;\s*)finlink=([A-Za-z0-9_\-]+)/.exec(document.cookie || ''); return m ? parseLink('?db=' + m[1]) : null; }
 function demoDb() {
   var db = finNewDb(), t = today(), n = 0, mk = function (id, name, role, sections, admin) { db.rev++; db.users.push({ id: id, name: name, role: role, sections: sections, admin: !!admin, active: true, salt: 'demo', cred: credOf('demo', '1111'), fails: 0, lockUntil: '', rev: db.rev }); };
-  mk('d-head', 'Demo head, Football Academy', 'head', ['FOO']); mk('d-dir', 'Demo Director', 'director', [], true); mk('d-acc', 'Demo Accountant', 'accountant', ['ADM']); mk('d-car', 'Demo head, Carpentry', 'head', ['CAR']);
+  mk('d-head', 'Demo head, Football Academy', 'head', ['FOO']); mk('d-dir', 'Demo Director', 'director', [], true); mk('d-acc', 'Demo Reviewer', 'accountant', []); db.users[db.users.length - 1].reviews = ['S', 'C']; mk('d-car', 'Demo head, Carpentry', 'head', ['CAR']);
   var rq = function (sec, by, what, amount, line, prio, sentOff, needOff, pay, status, o) {
     o = o || {}; db.rev++; db.seq++; n++;
     var created = finAddDays(t, sentOff), needed = finAddDays(t, needOff), u = finFind(db.users, by), at = new Date(Date.now() + sentOff * 86400000).toISOString();
     db.requests.push({ id: 'dr' + n, no: 'R' + ('000' + db.seq).slice(-4), section: sec, what: what, amount: amount, line: line, lineName: LINE[line] ? LINE[line].name : 'Not in the budget', prio: prio, needed: needed, pay: pay, created: created, received: at,
       notice: finWorkDays(created, needed), emergency: !!o.reason, reason: o.reason || '', why: o.why || '', by: by, byName: u.name, status: status, decidedBy: status === 'Waiting' ? '' : 'Demo Director', decidedAt: status === 'Waiting' ? '' : nowIso(), note: '',
-      week: status === 'Approved' ? finWeekKey(t) : '', paidBy: status === 'Paid' ? 'Demo Accountant' : '', paidAt: status === 'Paid' ? at : '', receipt: !!o.receipt, receiptBy: o.receipt ? 'Demo Accountant' : '', receiptAt: o.receipt ? at : '', quoteFile: '', receiptFile: '', deadline: '', rev: db.rev });
+      week: status === 'Approved' ? finWeekKey(t) : '', paidBy: status === 'Paid' ? 'Demo Reviewer' : '', paidAt: status === 'Paid' ? at : '', receipt: !!o.receipt, receiptBy: o.receipt ? 'Demo Reviewer' : '', receiptAt: o.receipt ? at : '', quoteFile: '', receiptFile: '', deadline: '', rev: db.rev });
   };
   rq('FOO', 'd-head', 'Cash allowance, away match', 2400, 'FOO-11', 'P1', 0, 1, 'cash', 'Waiting', { reason: 'Other reason', why: 'Match date moved' });
   rq('ADM', 'd-acc', 'Brake pads, bus 2', 3800, 'ADM-05', 'P1', 0, 2, 'bank', 'Waiting', { reason: 'Breakdown that stops a service', why: 'Bus 2 is off the road' });
@@ -1608,7 +1613,6 @@ function demoDb() {
   rq('CAR', 'd-car', 'Varnish, 1 litre', 550, 'CAR-02', 'P2', -6, -5, 'cash', 'Paid', { receipt: true });
   rq('CAN', 'd-acc', 'Mealie meal, two weeks', 5250, 'CAN-01', 'P1', -1, 7, 'bank', 'Waiting'); db.requests[db.requests.length - 1].food = { people: 150, qty: 150, unit: 'kg', price: 35, stock: 20 }; db.requests[db.requests.length - 1].parts = [{ date: finAddDays(t, 7), amount: 2625 }, { date: finAddDays(t, 14), amount: 2625 }];
   rq('CAR', 'd-car', 'Electric drill', 4200, 'none', 'P3', -10, -3, 'bank', 'Not approved'); db.requests[db.requests.length - 1].note = 'Not in the budget. Ask again in January.'; db.requests[db.requests.length - 1].decidedAt = new Date(Date.now() - 7 * 86400000).toISOString();
-  mk('d-rev', 'Demo reviewer, Administration', 'head', ['ADM']); db.users[db.users.length - 1].reviews = ['S'];
   rq('FOO', 'd-head', 'Cones and field markers', 1250, '', 'P2', 0, 9, 'cash', 'Review'); var dq = db.requests[db.requests.length - 1]; dq.lineName = ''; dq.decidedBy = ''; dq.decidedAt = ''; dq.items = [{ line: '', lineName: '', what: 'Training cones', qty: 20, price: 45, amount: 900 }, { line: '', lineName: '', what: 'Field markers', qty: 10, price: 35, amount: 350 }];
   db.settings.tranche = { w1: 120000, w2: 90000, last: 150000 };
   var dl = function (id, sec, what, amount, line, off, rep) { db.rev++; db.deadlines.push({ id: id, section: sec, what: what, amount: amount, line: line, lineName: LINE[line] ? LINE[line].name : '', date: finAddDays(t, off), repeat: rep ? 'monthly' : '', pay: 'bank', asked: '', deleted: false, rev: db.rev }); };
@@ -1675,7 +1679,7 @@ function saveFile(name, blob) {
 function reqHead() { return ['No', 'Asked on', 'Section', 'What', 'Amount (K)', 'Priority', 'Needed on', 'Notice (working days)', 'Emergency', 'Reason', 'Pay by', 'Status', 'Asked by', 'Budget line code', 'Budget line', 'Activity', 'Budget of the line (K)', 'Approved on the line (K)', 'Decided by', 'Decided on', 'Note of the Director', 'Paid by', 'Paid on', 'Receipt', 'Quotation', 'Will be paid on', 'Sent again (times)', 'People', 'Quantity', 'Unit', 'Price per unit (K)', 'Left in the store', 'Spent (K)', 'Not spent (K)', 'Paid so far (K)', 'Parts', 'Asked by (role)', 'Part', 'Reviewed by', 'Reviewed on']; }
 function reqRow(r) {
   var L = LINE[r.line], u = L ? lineUse(r.line) : null;
-  return [r.no || 'Not sent yet', r.created, secName(r.section), r.what, r.amount, r.prio, r.needed, r.notice, r.emergency ? 'Emergency' : '', r.emergency ? r.reason + ': ' + r.why : '', payText(r), (PILL[r.status] || PILL.Waiting)[0], r.byName, r.line === 'none' || r.line === 'several' ? '' : r.line, r.lineName || (r.line === 'none' ? 'Not in the budget' : ''), L ? L.act : '', L ? L.total : '', u ? u.used : '', r.decidedBy, r.decidedAt ? finToday(r.decidedAt) : '', r.note, r.paidBy, r.paidAt ? finToday(r.paidAt) : '', r.receipt ? 'Yes' : (r.status === 'Paid' ? 'Missing' : ''), r.quoteFile ? 'Yes' : 'No', r.payOn || '', r.revised || '', r.food ? r.food.people : '', r.food ? r.food.qty : '', r.food ? r.food.unit : '', r.food ? r.food.price : '', r.food ? r.food.stock : '', r.spent != null ? r.spent : '', r.spent != null ? Math.round((r.amount - r.spent) * 100) / 100 : '', finPaid(r), r.parts ? r.parts.length : 1, isFixedReq(r) ? 'Fixed cost' : ({ head: 'Section head', accountant: 'Accountant, for the section', director: 'Director', viewer: 'Can look' })[roleOf(r)] || '', partText(r.section), r.revBy || (r.selfRev ? 'Asked by the reviewer' : ''), r.revAt ? finToday(r.revAt) : ''];
+  return [r.no || 'Not sent yet', r.created, secName(r.section), r.what, r.amount, r.prio, r.needed, r.notice, r.emergency ? 'Emergency' : '', r.emergency ? r.reason + ': ' + r.why : '', payText(r), (PILL[r.status] || PILL.Waiting)[0], r.byName, r.line === 'none' || r.line === 'several' ? '' : r.line, r.lineName || (r.line === 'none' ? 'Not in the budget' : ''), L ? L.act : '', L ? L.total : '', u ? u.used : '', r.decidedBy, r.decidedAt ? finToday(r.decidedAt) : '', r.note, r.paidBy, r.paidAt ? finToday(r.paidAt) : '', r.receipt ? 'Yes' : (r.status === 'Paid' ? 'Missing' : ''), r.quoteFile ? 'Yes' : 'No', r.payOn || '', r.revised || '', r.food ? r.food.people : '', r.food ? r.food.qty : '', r.food ? r.food.unit : '', r.food ? r.food.price : '', r.food ? r.food.stock : '', r.spent != null ? r.spent : '', r.spent != null ? Math.round((r.amount - r.spent) * 100) / 100 : '', finPaid(r), r.parts ? r.parts.length : 1, isFixedReq(r) ? 'Fixed cost' : ({ head: 'Section head', accountant: 'Reviewer, for the section', director: 'Director', viewer: 'Can look' })[roleOf(r)] || '', partText(r.section), r.revBy || (r.selfRev ? 'Asked by the reviewer' : ''), r.revAt ? finToday(r.revAt) : ''];
 }
 /* what was approved, by month of need, for each section and each budget line; and what is waiting now */
 function approvedData() {
@@ -1770,7 +1774,7 @@ function exportSheets() {
     list.forEach(function (r) { var g = rows[r.section] || (rows[r.section] = { code: r.section, n: 0, em: 0, amount: 0, cash: 0, rec: 0 }); g.n++; g.amount += r.amount; if (r.emergency) g.em++; if (r.pay === 'cash') g.cash += r.amount; if (r.status === 'Paid' && !r.receipt) g.rec++; });
     out.push({ name: 'By section ' + m, head: ['Section', 'Requests', 'Emergency', 'Asked (K)', 'Of which cash (K)', 'Paid, receipt missing', 'Budget ' + FIN_BUDGET.year + ' (K)', 'Approved so far (K)', '% of the budget'], rows: Object.keys(rows).map(function (k) { var g = rows[k], s = SEC[k], u = sectionUse(k); return [secName(k), g.n, g.em, g.amount, g.cash, g.rec, s ? s.total : '', u, s ? pct(u, s.total) : '']; }) });
     rq('Requests ' + m, list.sort(byNew));
-  } else if (t === 'people') out.push({ name: 'People', head: ['Position', 'Name', 'Role', 'Sections', 'Administrator', 'Can enter'], rows: v.users.slice().sort(byPosition).map(function (u) { return [titleOf(u), u.name, { head: 'Section head', director: 'Director', accountant: 'Accountant', viewer: 'Can look' }[u.role], (u.sections || []).map(secName).join(', '), u.admin ? 'Yes' : '', u.active === false ? 'No' : 'Yes']; }) });
+  } else if (t === 'people') out.push({ name: 'People', head: ['Position', 'Name', 'Role', 'Sections', 'Administrator', 'Can enter'], rows: v.users.slice().sort(byPosition).map(function (u) { return [titleOf(u), u.name, u.role === 'viewer' && u.admin ? 'Administrator' : { head: 'Section head', director: 'Director', accountant: 'Reviewer', viewer: 'Can look' }[u.role], (u.sections || []).map(secName).join(', '), u.admin ? 'Yes' : '', u.active === false ? 'No' : 'Yes']; }) });
   else if (t === 'comments') out.push({ name: f.cDone ? 'Comments done' : 'Open comments', head: ['Time', 'Who', 'From the demo', 'Screen', 'Word or place', 'Comment', 'Version', 'Phone or computer', 'Done', 'Done by', 'Done on'], rows: comList().map(function (c) { return [c.time ? finToday(c.time) + ' ' + new Date(Date.parse(c.time) + FIN_TZ_MINUTES * 60000).toISOString().slice(11, 16) : '', c.byName, c.demo ? 'Demo' : '', c.page, c.target, c.text, c.version, c.phone ? 'Phone' : 'Computer', c.done ? 'Done' : '', c.doneBy, c.doneAt ? finToday(c.doneAt) : '']; }) });
   else if (t === 'budget') {
     var secs = budgetOrder(budgetSections(), function (s) { return s.total; }), lines = [];
@@ -1827,7 +1831,7 @@ var H = {
     if (!pinOk(f.pin)) { S.ui.err = 'The PIN must be 4 to 8 numbers.'; return render(); }
     if (f.pin !== f.pin2) { S.ui.err = 'The two PINs are not the same.'; return render(); }
     var id = uid(), salt = uid(), cred = credOf(salt, f.pin);
-    call({ action: 'first_admin', id: id, name: name, role: f.role || 'viewer', salt: salt, cred: cred }).then(function (res) {
+    call({ action: 'first_admin', id: id, name: name, role: 'viewer', salt: salt, cred: cred }).then(function (res) {
       if (!res.ok) { S.ui.err = errText(res.error); return render(); }
       S.users = res.users; KV.set('users', S.users); enter(finFind(S.users, id), cred);
     }).catch(function () { S.ui.err = 'No internet. Try again.'; render(); });
@@ -2096,10 +2100,11 @@ var H = {
   allReqs: function () { S.ui.form = {}; go('all'); },
   people: function () { go('people'); },
   personNew: function () { openModal({ type: 'person', id: '' }, { role: 'head', sections: [], reviews: [], active: true }); },
-  personEdit: function (el) { var u = finFind(V().users, el.dataset.id); if (!u) return; openModal({ type: 'person', id: u.id }, { name: u.name, title: u.title || '', role: u.role, sections: (u.sections || []).slice(), reviews: (u.reviews || []).slice(), admin: u.admin, active: u.active !== false, pin: '' }); },
+  personEdit: function (el) { var u = finFind(V().users, el.dataset.id); if (!u) return; openModal({ type: 'person', id: u.id }, { name: u.name, title: u.title || '', role: u.role === 'viewer' && u.admin ? 'admin' : u.role, sections: (u.sections || []).slice(), reviews: u.role === 'accountant' ? finRevParts(u) : [], active: u.active !== false, pin: '' }); },
   personSave: function () {
-    var m = S.ui.m, x = S.ui.modal, d = { id: x.id || uid(), name: m.name, title: String(m.title || '').trim(), role: m.role || 'head', sections: m.sections || [], reviews: m.reviews || [], admin: !!m.admin, active: m.active !== false };
+    var m = S.ui.m, x = S.ui.modal, k = m.role || 'head', d = { id: x.id || uid(), name: m.name, title: String(m.title || '').trim(), role: k === 'admin' ? 'viewer' : k, sections: k === 'head' ? m.sections || [] : [], reviews: k === 'accountant' ? m.reviews || [] : [], admin: k === 'admin', active: m.active !== false };
     if (!String(m.name || '').trim()) { S.ui.merr = 'Write the name.'; return render(); }
+    if (k === 'accountant' && !d.reviews.length) { S.ui.merr = 'Choose what this person reviews.'; return render(); }
     if (!x.id && !pinOk(m.pin)) { S.ui.merr = 'The PIN must be 4 to 8 numbers.'; return render(); }
     if (m.pin && !pinOk(m.pin)) { S.ui.merr = 'The PIN must be 4 to 8 numbers.'; return render(); }
     if (m.pin) { d.salt = uid(); d.cred = credOf(d.salt, m.pin); }
