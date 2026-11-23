@@ -10,7 +10,8 @@ var FIN_DEPTS = [['TRA', 'Transport', 'S'], ['MEW', 'Mechanics workshop', 'S'], 
 function finPart(code) { for (var i = 0; i < FIN_DEPTS.length; i++) if (FIN_DEPTS[i][0] === code) return FIN_DEPTS[i][2]; return 'S'; }
 /* a request is reviewed before the Director sees it: the reviewer gives it its budget lines */
 function finReviewOn(s) { return !s || s.review !== false; }
-function finReviews(u, code) { return (u.reviews || []).indexOf(finPart(code)) >= 0; }
+function finRevParts(u) { var p = (u.reviews || []).slice(); if (u.role === 'accountant' && p.indexOf('C') < 0) p.push('C'); return p; }
+function finReviews(u, code) { return finRevParts(u).indexOf(finPart(code)) >= 0; }
 function finOpenLines(items) { for (var i = 0; i < (items || []).length; i++) if (!items[i].line) return true; return false; }
 
 function finNewDb() {
@@ -599,4 +600,4 @@ function finHandle(req, store) {
   return out;
 }
 
-if (typeof module !== 'undefined') module.exports = { finPart: finPart, finReviews: finReviews, finPaid: finPaid, finHandle: finHandle, finApply: finApply, finNewDb: finNewDb, finWorkDays: finWorkDays, finAskBy: finAskBy, finWeekKey: finWeekKey, finToday: finToday, finAddDays: finAddDays, finAddMonth: finAddMonth };
+if (typeof module !== 'undefined') module.exports = { finPart: finPart, finRevParts: finRevParts, finReviews: finReviews, finPaid: finPaid, finHandle: finHandle, finApply: finApply, finNewDb: finNewDb, finWorkDays: finWorkDays, finAskBy: finAskBy, finWeekKey: finWeekKey, finToday: finToday, finAddDays: finAddDays, finAddMonth: finAddMonth };
