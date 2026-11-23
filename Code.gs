@@ -540,6 +540,22 @@ function finHandle(req, store) {
     return { ok: true };
   }
 
+  /* after the stream the person writes the PIN: the app asks which of the people of that stream have it */
+  if (a === 'who') {
+    var wh = db.who || (db.who = { fails: 0, lock: '' }), cands = req.cands || [], hits = [];
+    if (wh.lock && now < wh.lock) return { ok: false, error: 'locked', until: wh.lock };
+    if (!cands.length || cands.length > 80) return { ok: false, error: 'fields' };
+    for (i = 0; i < cands.length; i++) { var cu = cands[i] ? finFind(db.users, cands[i].id) : null; if (cu && cu.active !== false && cands[i].cred && cu.cred === cands[i].cred && !(cu.lockUntil && now < cu.lockUntil)) hits.push(cu.id); }
+    if (!hits.length) {
+      wh.fails = (wh.fails || 0) + 1;
+      if (wh.fails >= 5) { wh.fails = 0; wh.lock = new Date(Date.parse(now) + 60000).toISOString(); }
+      store.save(db, { requests: [], audit: [] });
+      return { ok: false, error: 'pin' };
+    }
+    if (wh.fails || wh.lock) { wh.fails = 0; wh.lock = ''; store.save(db, { requests: [], audit: [] }); }
+    return { ok: true, ids: hits };
+  }
+
   var u = finFind(db.users, req.user);
   if (!u || u.active === false) return { ok: false, error: 'user' };
   if (u.lockUntil && now < u.lockUntil) return { ok: false, error: 'locked', until: u.lockUntil };
