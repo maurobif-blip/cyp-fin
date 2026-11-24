@@ -132,7 +132,7 @@ img.photo{max-width:100%;border:1px solid var(--line)}
 <script src="core.js"></script>
 <script>
 'use strict';
-var FIN_VERSION = 'beta 1.0';
+var FIN_VERSION = 'beta 1.1';
 
 /* ================= small tools ================= */
 function esc(s) { return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]; }); }
@@ -842,9 +842,13 @@ function tileK(label, k, note) { return tile(label, money(k), note, { n: Math.ro
 function tileN(label, n, note) { return tile(label, String(n), note, { n: n }); }
 function tiles(list) { return '<div class="cyp-tiles">' + list.join('') + '</div>'; }
 /* ProgressRow: a section in blue with its icon, a place in its colour with the pin */
-function prow(code, name, p, left, right, extra) {
+function prow(code, name, p, left, right, extra, btn) {
   var pl = PLACE[code], icn = pl ? 'map-pin' : SECICON[code];
-  return '<div class="cyp-prow ' + (pl ? 'cyp-c-' + pl : 'cyp-c-blue') + '"><div class="cyp-prow__head">' + (icn ? '<span class="cyp-disc cyp-disc--sm">' + di(icn).replace(' class="cyp-icon"', '') + '</span>' : '') + '<span class="cyp-prow__name">' + esc(name) + '</span><span class="cyp-prow__pct">' + p + '%</span></div><span class="cyp-bar" aria-hidden="true"><i style="width:' + Math.max(0, Math.min(100, p)) + '%"></i></span><div class="cyp-prow__figs"><span>' + left + '</span><span>' + right + '</span></div>' + (extra || '') + '</div>';
+  return '<div class="cyp-prow ' + (pl ? 'cyp-c-' + pl : 'cyp-c-blue') + '"><div class="cyp-prow__head">' + (icn ? '<span class="cyp-disc cyp-disc--sm">' + di(icn).replace(' class="cyp-icon"', '') + '</span>' : '') + '<span class="cyp-prow__name">' + esc(name) + '</span><span class="cyp-prow__pct">' + p + '%</span>' + (btn || '') + '</div><span class="cyp-bar" aria-hidden="true"><i style="width:' + Math.max(0, Math.min(100, p)) + '%"></i></span><div class="cyp-prow__figs"><span>' + left + '</span><span>' + right + '</span></div>' + (extra || '') + '</div>';
+}
+function prowCount(code, name, value, unit, extra, btn) {
+  var pl = PLACE[code], icn = pl ? 'map-pin' : SECICON[code];
+  return '<div class="cyp-prow cyp-prow--count ' + (pl ? 'cyp-c-' + pl : 'cyp-c-blue') + '"><div class="cyp-prow__head">' + (icn ? '<span class="cyp-disc cyp-disc--sm">' + di(icn).replace(' class="cyp-icon"', '') + '</span>' : '') + '<span class="cyp-prow__name">' + esc(name) + '</span><span class="cyp-prow__pct num">' + value + '</span>' + (btn || '') + '</div><div class="cyp-prow__figs"><span>' + unit + ', no target set</span></div>' + (extra || '') + '</div>';
 }
 function isWide() { return !!(window.matchMedia && window.matchMedia('(min-width:900px)').matches); }
 /* DataTable: the requests on a computer */
@@ -905,18 +909,18 @@ function scrReport() {
     if (!d.n) h += '<div class="s m">No requests in this month.</div>';
   } else if (ch === 2) {
     h += '<div class="cyp-card card"><h3 class="heading-3">Approved so far in ' + FIN_BUDGET.year + '</h3>';
-    budgetOrder(all.filter(function (s) { return !PLACE[s.code]; }), function (s) { return s.total; }).forEach(function (s) { var u = sectionUse(s.code); h += prow(s.code, s.name, pct(u, s.total), money(u) + ' approved', 'of ' + money(s.total), d.sec[s.code] ? '<div class="s num">' + mt + ': ' + plural(d.sec[s.code], 'request', 'requests') + '</div>' : ''); });
+    budgetOrder(all.filter(function (s) { return !PLACE[s.code]; }), function (s) { return s.total; }).forEach(function (s) { var u = sectionUse(s.code); h += prow(s.code, s.name, pct(u, s.total), money(u) + ' approved', 'of ' + money(s.total), d.sec[s.code] ? '<div class="s num">' + mt + ': ' + plural(d.sec[s.code], 'request', 'requests') + '</div>' : '', d.sec[s.code] ? openBtn('secReqs', s.code) : ''); });
     h += '</div>';
   } else if (ch === 3) {
     var pls = PLACEORDER.map(function (c) { return SEC[c] && all.some(function (s) { return s.code === c; }) ? SEC[c] : null; }).filter(Boolean), sum = pls.reduce(function (s, x) { return s + x.total; }, 0), off = 0;
     pls.forEach(function (s) {
       var u = sectionUse(s.code);
-      h += '<div class="cyp-result cyp-c-' + PLACE[s.code] + '"><div class="cyp-result__text"><b>' + money(u) + ' approved</b> of ' + money(s.total) + (d.sec[s.code] ? '<br>' + mt + ': ' + plural(d.sec[s.code], 'request', 'requests') : '') + '</div><div class="cyp-result__name"><span class="cyp-disc">' + di('map-pin').replace(' class="cyp-icon"', '') + '</span><span class="heading-2">' + esc(s.name) + '</span></div><div class="cyp-result__block"><div><span class="figure" data-n="' + pct(u, s.total) + '" data-suf="%">' + pct(u, s.total) + '%</span><small>of the budget</small></div></div></div>';
+      h += '<div class="cyp-result cyp-result--app cyp-c-' + PLACE[s.code] + '"><div class="cyp-result__text"><b>' + money(u) + ' approved</b> of ' + money(s.total) + (d.sec[s.code] ? '<br>' + mt + ': ' + plural(d.sec[s.code], 'request', 'requests') : '') + '</div><div class="cyp-result__name"><span class="cyp-disc">' + di('map-pin').replace(' class="cyp-icon"', '') + '</span><span class="heading-2">' + esc(s.name) + '</span></div><div class="cyp-result__block"><div><span class="figure" data-n="' + pct(u, s.total) + '" data-suf="%">' + pct(u, s.total) + '%</span><small>of the budget</small></div></div>' + (d.sec[s.code] ? '<div class="cyp-result__action">' + openBtn('secReqs', s.code) + '</div>' : '') + '</div>';
     });
     if (sum > 0) {
       h += '<h3 class="heading-3">Budget ' + FIN_BUDGET.year + ' of the places: ' + money(sum) + '</h3><div class="cyp-donut"><svg viewBox="0 0 240 240" role="img" aria-label="' + pls.map(function (s) { return esc(s.name) + ' ' + pct(s.total, sum) + '%'; }).join(', ') + '">';
       pls.forEach(function (s) { var p = s.total / sum * 100; h += '<circle class="cyp-c-' + PLACE[s.code] + '" cx="120" cy="120" r="98" pathLength="100" stroke-dasharray="' + p.toFixed(2) + ' ' + (100 - p).toFixed(2) + '" stroke-dashoffset="' + (-off).toFixed(2) + '"/>'; off += p; });
-      h += '</svg><div><ul class="cyp-legend">' + pls.map(function (s) { return '<li class="cyp-c-' + PLACE[s.code] + '"><i class="cyp-swatch"></i><span>' + esc(s.name) + ' · ' + money(s.total) + '</span><b>' + pct(s.total, sum) + '%</b></li>'; }).join('') + '</ul></div></div>';
+      h += '</svg><div><ul class="cyp-legend">' + pls.map(function (s) { return '<li class="cyp-c-' + PLACE[s.code] + '"><i class="cyp-swatch"></i><span class="label-caps">' + esc(s.name) + '</span><b>' + pct(s.total, sum) + '%</b></li>'; }).join('') + '</ul></div></div>';
     }
     if (!pls.length) h += '<div class="s m">No place in the budget you see.</div>';
   } else {
@@ -1310,12 +1314,18 @@ function scrMonth() {
   h += tiles([tileN('Requests', tot.n, tot.em + ' sent as Emergency'), tileK('Asked', tot.amount, 'Cash: ' + money(tot.cash))].concat(tot.rec ? [tileN('Paid, receipt missing', tot.rec, money(tot.recAmount))] : []));
   if (!list.length) h += '<div class="s m">No requests in this month.</div>';
   else {
-    h += '<div class="cyp-card card"><h2 class="heading-3">Budget ' + FIN_BUDGET.year + ', approved so far</h2>';
-    list.forEach(function (g) {
-      var s = SEC[g.code], used = sectionUse(g.code), line = '<div class="s num">' + plural(g.n, 'request', 'requests') + ' · ' + (g.em ? '<b class="cyp-text-warn">' + g.em + ' Emergency</b>' : '0 Emergency') + ' · ' + money(g.amount) + '</div>';
-      h += s ? prow(g.code, secName(g.code), pct(used, s.total), money(used) + ' approved', 'of ' + money(s.total), line) : '<div class="b">' + esc(secName(g.code)) + '</div>' + line;
-    });
-    h += '</div>';
+    var withB = list.filter(function (g) { return !!SEC[g.code]; }), noB = list.filter(function (g) { return !SEC[g.code]; });
+    var line = function (g) { return '<div class="s num">' + plural(g.n, 'request', 'requests') + ' · ' + (g.em ? '<b class="cyp-text-warn">' + g.em + ' Emergency</b>' : '0 Emergency') + '</div>'; };
+    if (withB.length) {
+      h += '<div class="cyp-card card"><h2 class="heading-3">Budget ' + FIN_BUDGET.year + ', approved so far</h2>';
+      withB.forEach(function (g) { var s = SEC[g.code], used = sectionUse(g.code); h += prow(g.code, secName(g.code), pct(used, s.total), money(used) + ' approved', 'of ' + money(s.total), '<div class="s num">Asked in ' + MOL[Number(m.slice(5)) - 1] + ': ' + money(g.amount) + '</div>' + line(g), openBtn('secReqs', g.code)); });
+      h += '</div>';
+    }
+    if (noB.length) {
+      h += '<div class="cyp-card card"><h2 class="heading-3">Departments with no budget section</h2>';
+      noB.forEach(function (g) { h += prowCount(g.code, secName(g.code), money(g.amount), 'asked in ' + MOL[Number(m.slice(5)) - 1], line(g), openBtn('secReqs', g.code)); });
+      h += '</div>';
+    }
   }
   return h + '</main>';
 }
@@ -1899,7 +1909,7 @@ function scrBudget() {
   if (finSeesAll(S.me)) h += tiles([tileK('Total', whole, plural(all.length, 'section', 'sections'))]);
   budgetOrder(all, function (s) { return s.total; }).forEach(function (s) {
     var u = sectionUse(s.code), p = pct(u, s.total);
-    h += '<div class="cyp-card card tap">' + prow(s.code, s.name, p, money(u) + ' approved', 'of ' + money(s.total)) + '<div class="s m num">' + pct(s.total, whole) + '% of the whole budget · ' + plural(s.lines.length, 'line', 'lines') + '</div>';
+    h += '<div class="cyp-card card tap">' + prow(s.code, s.name, p, money(u) + ' approved', 'of ' + money(s.total), '', openBtn('budgetOpen', s.code, open === s.code ? 'Close' : 'Open')) + '<div class="s m num">' + pct(s.total, whole) + '% of the whole budget · ' + plural(s.lines.length, 'line', 'lines') + '</div>';
     var lineRow = function (L) { var x = lineUse(L.id); h += '<div class="rule row s"><div>' + esc(L.name) + '</div><div class="num">' + money(x.used) + ' of ' + money(L.total) + '</div></div>'; };
     if (s.code === 'ADM') {
       /* the shared costs, in groups: each with its part of the whole budget */
@@ -1910,7 +1920,7 @@ function scrBudget() {
         budgetOrder(g.lines, function (L) { return L.total; }).forEach(lineRow);
       });
     } else if (open === s.code) budgetOrder(s.lines, function (L) { return L.total; }).forEach(lineRow);
-    h += '<div class="btns">' + openBtn('budgetOpen', s.code, open === s.code ? 'Close' : 'Open') + '</div></div>';
+    h += '</div>';
   });
   return h + '</main>';
 }
@@ -2265,6 +2275,7 @@ var H = {
   repOpen: function () { S.ui.rep = { ch: 0 }; go('report'); },
   repGo: function (el) { var n = Number(el.dataset.id), rp = S.ui.rep || (S.ui.rep = { ch: 0 }); if (n === rp.ch) return; rp.move = n < rp.ch ? 'prev' : 'next'; rp.ch = n; S.ui.keepScroll = false; render(); },
   repState: function (el) { S.ui.form = { fStatus: el.dataset.id, fMonth: S.ui.month || today().slice(0, 7) }; go('all'); },
+  secReqs: function (el) { S.ui.form = { fSec: el.dataset.id, fMonth: S.ui.month || today().slice(0, 7) }; go('all'); },
   allMonths: function () { S.ui.form.fMonth = ''; render(); },
   printReq: function (el) {
     var r = finFind(V().requests, el.dataset.id), box = document.getElementById('print'); if (!r || !box) return;
