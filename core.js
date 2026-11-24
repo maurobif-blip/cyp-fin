@@ -311,9 +311,19 @@ function finApply(db, u, op, nowIso, store, info) {
     if (d.kind === 'month') {
       if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(String(d.month))) return fail('fields');
       if (!s.monthExp) s.monthExp = {};
-      if (d.amount === null || d.amount === '') delete s.monthExp[d.month];
-      else { var ma = Number(d.amount); if (!(ma >= 0) || ma > 1000000000) return fail('fields'); s.monthExp[d.month] = ma; }
-      bump(s); audit('Money for the month', d.month + ' ' + (s.monthExp[d.month] != null ? 'expected K' + s.monthExp[d.month] : 'removed'));
+      if (!s.monthEur) s.monthEur = {};
+      /* the money comes in euros: the euros and the exchange rate are kept, the Kwacha are euros x rate */
+      var me = d.eur === null || d.eur === '' || d.eur == null ? null : Number(d.eur), mr = d.rate === null || d.rate === '' || d.rate == null ? null : Number(d.rate);
+      if (me !== null && !(me >= 0 && me <= 100000000)) return fail('fields');
+      if (mr !== null && !(mr > 0 && mr <= 10000)) return fail('fields');
+      if (d.amount === null || d.amount === '') { delete s.monthExp[d.month]; delete s.monthEur[d.month]; }
+      else {
+        var ma = me !== null && mr !== null ? Math.round(me * mr * 100) / 100 : Number(d.amount);
+        if (!(ma >= 0) || ma > 1000000000) return fail('fields');
+        s.monthExp[d.month] = ma;
+        if (me !== null && mr !== null) s.monthEur[d.month] = { eur: me, rate: mr }; else delete s.monthEur[d.month];
+      }
+      bump(s); audit('Money for the month', d.month + ' ' + (s.monthExp[d.month] != null ? 'expected K' + s.monthExp[d.month] + (s.monthEur[d.month] ? ' (EUR ' + s.monthEur[d.month].eur + ' x ' + s.monthEur[d.month].rate + ')' : '') : 'removed'));
       return { ok: true };
     }
     if (!finIsDate(d.week)) return fail('fields');

@@ -26,6 +26,7 @@ button{cursor:pointer}
 h1{margin:0;font:var(--type-heading-2) var(--font-display)} h2{margin:var(--space-2) 0 0;font:var(--type-heading-3) var(--font-display)}
 #app{min-height:100%;display:flex;flex-direction:column;background:var(--surface-soft)}
 .cyp-appbar__where{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+#month-tranches th,#month-tranches td{padding-left:var(--space-2);padding-right:var(--space-2)}
 .cyp-appbar__sync{white-space:nowrap}
 .cyp-banner{padding-left:calc(var(--space-4) + env(safe-area-inset-left));padding-right:calc(var(--space-4) + env(safe-area-inset-right))}
 .cyp-banner .cyp-btn{margin-left:auto;flex:none}
@@ -132,7 +133,7 @@ img.photo{max-width:100%;border:1px solid var(--line)}
 <script src="core.js"></script>
 <script>
 'use strict';
-var FIN_VERSION = 'beta 1.2';
+var FIN_VERSION = 'beta 1.3';
 
 /* ================= small tools ================= */
 function esc(s) { return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]; }); }
@@ -414,24 +415,63 @@ function weekPlanData() {
   return { w: w, n: list.length, p: p, c1: p.P1, c2: p.P1 + p.P2, c3: p.P1 + p.P2 + p.P3, d1: q.P1, d2: q.P1 + q.P2, d3: q.P1 + q.P2 + q.P3, rows: rows };
 }
 function kw(n) { return (Math.round(Number(n) * 100) / 100).toLocaleString('en-US'); }
+/* the expected money of the month: euros x rate = Kwacha (Mr. Chiwele, 24/11) */
+function expKText(ym) {
+  var f = S.ui.form, eu = (V().settings.monthEur || {})[ym] || {}, e = f.meur != null ? f.meur : eu.eur, r = f.mrate != null ? f.mrate : eu.rate, mm = monthMoney(ym);
+  if (e !== '' && e != null && r !== '' && r != null && Number(e) >= 0 && Number(r) > 0) return 'Expected in Kwacha: ' + money(Number(e) * Number(r));
+  return mm.exp != null ? 'Expected in Kwacha now: ' + money(mm.exp) : 'Write the euros and the rate.';
+}
+/* the money of the month in one table: what is expected, then each tranche received minus what was approved
+   until the next tranche, and what is left goes on to the next tranche (Mr. Chiwele, 24/11) */
+function monthLedger(ym) {
+  var mm = monthMoney(ym), from = ym + '-01', end = finAddDays(finAddMonth(from), -1), rows = [], left = 0;
+  function approvedIn(a, b) {
+    var n = 0;
+    V().requests.forEach(function (r) {
+      if ((r.status !== 'Approved' && r.status !== 'Paid') || !r.decidedAt) return;
+      var dd = finToday(r.decidedAt); if (dd < a || dd > b) return;
+      n += r.closed ? finPaid(r) : r.amount;
+    });
+    return Math.round(n * 100) / 100;
+  }
+  if (!mm.list.length) rows.push({ label: 'No tranche yet', rec: null, appr: approvedIn(from, end) });
+  mm.list.forEach(function (x, i) {
+    var a = i ? x.date : from, nx = mm.list[i + 1], b = nx ? finAddDays(nx.date, -1) : end;
+    rows.push({ label: (i + 1) + '<span class="s m" style="display:block">' + Number(x.date.slice(8)) + ' ' + MOL[Number(x.date.slice(5, 7)) - 1].slice(0, 3) + '</span>', rec: x.amount, appr: approvedIn(a, b) });
+  });
+  rows.forEach(function (r) { left = Math.round((left + (r.rec || 0) - r.appr) * 100) / 100; r.left = left; });
+  return { mm: mm, rows: rows, left: left };
+}
+function monthTable(ym, mm) {
+  var lg = monthLedger(ym), eu = (V().settings.monthEur || {})[ym], h = '<div class="num" id="month-money">';
+  h += '<div class="b" id="month-exp">Expected: ' + (mm.exp != null ? (eu ? '€ ' + kw(eu.eur) + ' × ' + kw(eu.rate) + ' = ' : '') + money(mm.exp) : mm.ind != null ? money(mm.ind) + ' (indicative)' : 'not written') + '</div>';
+  h += '<div class="cyp-scroll"><table class="cyp-table" id="month-tranches"><caption class="s m">In Kwacha</caption><thead><tr><th scope="col" aria-label="Tranche"></th><th scope="col" class="num">Received</th><th scope="col" class="num">Approved</th><th scope="col" class="num">Left</th></tr></thead><tbody>' +
+    lg.rows.map(function (r) { return '<tr><th scope="row">' + r.label + '</th><td class="num">' + (r.rec == null ? '–' : kw(r.rec)) + '</td><td class="num">' + kw(r.appr) + '</td><td class="num' + (r.left < 0 ? ' cyp-text-danger bad' : '') + '">' + (r.left < 0 ? 'short ' + kw(-r.left) : kw(r.left)) + '</td></tr>'; }).join('') +
+    '</tbody></table></div>';
+  if (mm.toCome) h += '<div class="s" id="month-tocome">Still to come: ' + money(mm.toCome) + '</div>';
+  return h + '</div>';
+}
 function weekPlan() {
   var d = weekPlanData(), w = d.w, f = S.ui.form, canMoney = S.me.role === 'accountant' || S.me.role === 'director' || !!S.me.admin;
   var ym = today().slice(0, 7), mm = monthMoney(ym), mn = MOL[Number(ym.slice(5)) - 1], old = waitingOld();
-  var h = '<div class="cyp-card card"><div class="b">Money for ' + mn + '</div>';
-  if (canMoney) {
-    h += field('Expected for ' + mn + ', in Kwacha', 'acc-exp', input('acc-exp', 'mexp', f.mexp != null ? f.mexp : (mm.exp != null ? mm.exp : ''), 'number', 'min="0" inputmode="decimal"'));
+  var h = '<div class="cyp-card card"><div class="b">Money for ' + mn + '</div>' + monthTable(ym, mm);
+  var ml = monthLeft();
+  if (ml && ml.fixed) h += '<div class="s num" id="month-fixed">Keep for fixed costs not approved yet: ' + money(ml.fixed) + '</div>';
+  /* the fields stay closed once something is written: the table above is what people read (Mr. Chiwele, 24/11) */
+  var monOpen = canMoney && (f.monEdit || (mm.exp == null && !mm.list.length));
+  if (canMoney && !monOpen) h += '<button type="button" class="mt cyp-btn btn" data-a="monEdit" aria-expanded="false">Change the money for ' + mn + '</button>';
+  if (monOpen) {
+    var eu = (V().settings.monthEur || {})[ym] || {};
+    h += '<div class="two">' + field('Expected for ' + mn + ', in euros', 'acc-eur', input('acc-eur', 'meur', f.meur != null ? f.meur : (eu.eur != null ? eu.eur : ''), 'number', 'min="0" inputmode="decimal" data-ek="1"')) +
+      field('Exchange rate, Kwacha for 1 euro', 'acc-rate', input('acc-rate', 'mrate', f.mrate != null ? f.mrate : (eu.rate != null ? eu.rate : ''), 'number', 'min="0" step="0.01" inputmode="decimal" data-ek="1"')) + '</div>' +
+      '<div class="b num" id="acc-expk">' + expKText(ym) + '</div>';
     for (var ti = 0; ti < Math.max(3, mm.list.length); ti++) {
       var tx = mm.list[ti];
       h += '<fieldset class="tr"><legend>Tranche ' + (ti + 1) + '</legend><div class="two"><div class="cyp-field field"><label for="acc-t' + ti + '">Received, in Kwacha</label>' + input('acc-t' + ti, 't' + ti, f['t' + ti] != null ? f['t' + ti] : (tx ? tx.amount : ''), 'number', 'min="0" inputmode="decimal"') +
         '</div><div class="cyp-field field"><label for="acc-d' + ti + '">Day received</label>' + input('acc-d' + ti, 'd' + ti, f['d' + ti] != null ? f['d' + ti] : (tx ? tx.date : ''), 'date', 'min="' + ym + '-01" max="' + today() + '"') + '</div></div></fieldset>';
     }
-    h += '<button type="button" class="cyp-btn btn" data-a="monthSave">Save</button>';
+    h += '<div class="btns"><button type="button" class="cyp-btn cyp-btn--primary btn pri" data-a="monthSave">Save</button>' + (mm.exp != null || mm.list.length ? '<button type="button" class="cyp-btn btn" data-a="monEdit" aria-expanded="true">Close</button>' : '') + '</div>';
   }
-  h += '<div class="s num" id="month-money"><div>Expected for ' + mn + ': ' + (mm.exp != null ? money(mm.exp) : mm.ind != null ? money(mm.ind) + ' (indicative)' : 'not written') + '</div>' +
-    (canMoney ? '' : mm.list.map(function (x, i) { return '<div>Tranche ' + (i + 1) + ': ' + money(x.amount) + ' on ' + day(x.date) + '</div>'; }).join('')) +
-    '<div>Received in ' + mn + ': ' + (mm.list.length ? money(mm.rec) + ' in ' + plural(mm.list.length, 'tranche', 'tranches') : 'nothing yet') + '</div>' + (mm.toCome != null ? '<div>Still to come: ' + money(mm.toCome) + '</div>' : '') + '</div>';
-  var ml = monthLeft();
-  if (ml) h += '<div class="s num" id="month-left"><div>Paid in ' + ml.name + ': ' + money(ml.paid) + '</div><div>Approved, still to pay in ' + ml.name + ': ' + money(ml.due) + '</div>' + (ml.fixed ? '<div>Fixed costs not approved yet: ' + money(ml.fixed) + '</div>' : '') + '<div class="b ' + (ml.left >= 0 ? 'cyp-text-ok good' : 'cyp-text-danger bad') + '">' + (ml.left >= 0 ? 'Left in ' + ml.name + ': ' + money(ml.left) : 'Short in ' + ml.name + ' by ' + money(-ml.left)) + '</div></div>';
   h += '<div class="mt b">Week of ' + day(w.key) + '</div>';
   var pw = planItems(w.key, finAddDays(w.key, 6)).filter(function (x) { return x.fixed || monthlySecs().indexOf(x.sec) < 0; }), pt = 0, pn = 0;
   pw.forEach(function (x) { pt += x.amount; if (!x.req) pn += x.amount; });
@@ -703,7 +743,7 @@ function titleOf(u) {
   if (u.role === 'director') return 'Director'; if (u.role === 'accountant') return 'Reviewer';
   if (u.role === 'viewer') return u.admin ? 'Administrator' : 'Can look';
   var s = (u.sections || []).map(secName);
-  return s.length ? 'Head: ' + s.slice(0, 2).join(', ') + (s.length > 2 ? ' and ' + (s.length - 2) + ' more' : '') : 'Section head';
+  return s.length ? 'Head ' + s.slice(0, 2).join(', ') + (s.length > 2 ? ' and ' + (s.length - 2) + ' more' : '') : 'Section head';
 }
 var ROLE_ORDER = { director: 0, accountant: 1, head: 2, viewer: 3 };
 function byPosition(a, b) { var x = ROLE_ORDER[a.role] - ROLE_ORDER[b.role]; if (x) return x; var p = titleOf(a), q = titleOf(b); return p < q ? -1 : p > q ? 1 : a.name < b.name ? -1 : 1; }
@@ -712,7 +752,7 @@ function roleText(u) {
   var a = [];
   var rp = finRevParts(u).map(function (p) { return p === 'C' ? 'commercial' : 'social'; }).join(', ');
   if (u.role === 'director') a.push('Director'); if (u.role === 'accountant') a.push('Reviewer: ' + rp); if (u.role === 'viewer') a.push(u.admin ? 'Administrator' : 'Can look');
-  if ((u.sections || []).length) a.push((u.role === 'head' ? 'Head: ' : '') + u.sections.map(secName).join(', '));
+  if ((u.sections || []).length) a.push((u.role === 'head' ? 'Head ' : '') + u.sections.map(secName).join(', '));
   if (u.role === 'head' && !(u.sections || []).length) a.push('Section head');
   if (u.role !== 'accountant' && rp) a.push('Reviews: ' + rp);
   if (u.admin && u.role !== 'viewer') a.push('Administrator');
@@ -900,7 +940,7 @@ function repData(m) {
 }
 function scrReport() {
   var rp = S.ui.rep || (S.ui.rep = { ch: 0 }), m = S.ui.month || today().slice(0, 7), mt = MOL[Number(m.slice(5)) - 1] + ' ' + m.slice(0, 4), ch = rp.ch, mv = rp.move; rp.move = '';
-  if (!ch) return '<main class="fin-report"><div class="row center-row"><h1>Report</h1><button type="button" class="cyp-btn btn" data-a="tab" data-id="more">Back</button></div><div class="cyp-ground fin-cover' + (mv ? ' cyp-enter-prev' : '') + '"><span class="label-caps">Cicetekelo Youth Project</span><h2 class="fin-cover__title">Payment requests and budget</h2><p class="fin-cover__period">' + mt + '</p><button type="button" class="cyp-btn btn" id="rep-start" data-a="repGo" data-id="1">Start' + di('chevron-right') + '</button></div><div class="btns"><button type="button" class="cyp-btn btn" data-a="monthMove" data-id="-1">' + di('chevron-left') + 'Month before</button><button type="button" class="cyp-btn btn" data-a="monthMove" data-id="1">Month after' + di('chevron-right') + '</button></div></main>';
+  if (!ch) return '<main class="fin-report"><div class="row center-row"><h1>Report</h1><button type="button" class="cyp-btn btn" data-a="back">Back</button></div><div class="cyp-ground fin-cover' + (mv ? ' cyp-enter-prev' : '') + '"><span class="label-caps">Cicetekelo Youth Project</span><h2 class="fin-cover__title">Payment requests and budget</h2><p class="fin-cover__period">' + mt + '</p><button type="button" class="cyp-btn btn" id="rep-start" data-a="repGo" data-id="1">Start' + di('chevron-right') + '</button></div><div class="btns"><button type="button" class="cyp-btn btn" data-a="monthMove" data-id="-1">' + di('chevron-left') + 'Month before</button><button type="button" class="cyp-btn btn" data-a="monthMove" data-id="1">Month after' + di('chevron-right') + '</button></div></main>';
   var d = repData(m), all = budgetSections(), h = '<main class="fin-report"><div class="row center-row"><h1>Report, ' + mt + '</h1><button type="button" class="cyp-btn btn" data-a="repGo" data-id="0">Cover</button></div>';
   h += '<div class="cyp-nav cyp-nav--chapters fin-chapters" role="navigation" aria-label="Chapters">' + REPCH.map(function (c, i) { return '<a class="label-caps" href="#" data-a="repGo" data-id="' + (i + 1) + '"' + (ch === i + 1 ? ' aria-current="page"' : '') + ' aria-label="' + (i + 1) + ', ' + c[1] + '">' + (i + 1) + '<span class="cyp-nav__name">&nbsp;' + c[0] + '</span></a>'; }).join('') + '</div>';
   h += '<div class="fin-chapter ' + (mv === 'prev' ? 'cyp-enter-prev' : mv ? 'cyp-enter-next' : '') + '"' + (mv ? ' data-count="1"' : '') + '><h2 class="heading-2">' + REPCH[ch - 1][1] + '</h2>';
@@ -1160,7 +1200,7 @@ function scrReview() {
   if (r && (r.status !== 'Review' || !r.items || !finReviews(S.me, r.section) || r.by === S.me.id)) { r = null; f.rid = ''; }
   if (!r) {
     var list = toReview();
-    h = '<main>' + (S.me.role === 'head' ? '<h1>To review</h1>' : '<div class="row" style="align-items:center"><h1>To review</h1><button type="button" class="cyp-btn btn" data-a="tab" data-id="more">Back</button></div>');
+    h = '<main>' + (S.me.role === 'head' || !(S.ui.hist || []).length ? '<h1>To review</h1>' : '<div class="row" style="align-items:center"><h1>To review</h1><button type="button" class="cyp-btn btn" data-a="back">Back</button></div>');
     if (S.ui.msg) h += '<div class="cyp-banner cyp-banner--ok box ok" role="status">' + di('circle-check') + '' + esc(S.ui.msg) + '</div>';
     h += '<div class="m">' + plural(list.length, 'request', 'requests') + ' · ' + money(sumOf(list)) + '</div>';
     if (!list.length) h += '<div class="s m">Nothing to review.</div>';
@@ -1276,7 +1316,7 @@ function scrPlan() {
   var f = S.ui.form, can = canPlan(), mon = monthlySecs();
   if (!f.pSec || !SEC[f.pSec]) f.pSec = FIN_BUDGET.sections[0].code;
   var s = SEC[f.pSec], inPlan = 0, none = 0, noneK = 0, budget = 0;
-  var h = '<main><div class="row" style="align-items:center"><h1>Spending plan</h1><button type="button" class="cyp-btn btn" data-a="tab" data-id="more">Back</button></div>';
+  var h = '<main><div class="row" style="align-items:center"><h1>Spending plan</h1><button type="button" class="cyp-btn btn" data-a="back">Back</button></div>';
   var dl = drafts(), dmap = V().settings.planDraft || {};
   if (dl.length) {
     h += '<h2 id="pl-conf">To confirm by the Director · ' + dl.length + '</h2>';
@@ -1376,7 +1416,7 @@ function scrRec() {
   return h + '</main>';
 }
 function scrMore() {
-  var me = S.me, seesAll = finSeesAll(me), h = '<main><h1>More</h1><div class="cyp-card card"><div class="b">' + esc(me.name) + '</div><div class="s m">' + esc(roleText(me)) + '</div><div class="btns"><button type="button" class="cyp-btn btn" data-a="pinOpen">' + ic('lock') + 'Change my PIN</button><button type="button" class="cyp-btn btn" data-a="signOutAsk">' + di('log-out') + 'Sign out</button></div><div class="btns"><button type="button" class="cyp-btn btn" id="more-switch" data-a="signOut">Switch user</button><button type="button" class="cyp-btn btn" id="more-comment" data-a="comStart">' + di('message-square') + 'Comment</button></div></div>';
+  var me = S.me, seesAll = finSeesAll(me), h = '<main><h1>More</h1><div class="cyp-card card"><button type="button" class="cyp-btn btn user" id="more-me" data-a="whoMenu" aria-label="' + esc(me.name) + ': switch user">' + ic('people') + '<span style="flex:1;text-align:left"><span class="b" style="display:block">' + esc(me.name) + '</span><span class="s m">' + esc(roleText(me)) + '</span></span></button><div class="btns"><button type="button" class="cyp-btn btn" data-a="pinOpen">' + ic('lock') + 'Change my PIN</button><button type="button" class="cyp-btn btn" data-a="signOutAsk">' + di('log-out') + 'Sign out</button></div><div class="btns"><button type="button" class="cyp-btn btn" id="more-switch" data-a="signOut">Switch user</button><button type="button" class="cyp-btn btn" id="more-comment" data-a="comStart">' + di('message-square') + 'Comment</button></div></div>';
   h += '<div class="list"><button type="button" class="cyp-btn btn user" data-a="allReqs">' + ic('mine') + '<span style="flex:1">' + (seesAll ? 'All requests' : 'All my requests') + '</span></button>';
   if (iReview() && me.role !== 'head' && !(me.role === 'accountant' && reviewOn())) h += '<button type="button" class="cyp-btn btn user" id="more-review" data-a="tab" data-id="review">' + ic('decide') + '<span style="flex:1">To review' + (toReview().length ? ' (' + toReview().length + ')' : '') + '</span></button>';
   if (me.admin) h += '<button type="button" class="cyp-btn btn user" data-a="people">' + ic('people') + '<span style="flex:1">People and PINs</span></button>';
@@ -1396,7 +1436,7 @@ function scrMore() {
 function scrAll() {
   var v = V(), f = S.ui.form, list = v.requests.filter(function (r) { return !notMine(r) && (!f.fStatus || r.status === f.fStatus) && (!f.fSec || r.section === f.fSec) && (!f.fMonth || r.created.slice(0, 7) === f.fMonth); }).sort(function (a, b) { return (b.received || '') < (a.received || '') ? -1 : 1; });
   var secs = {}; v.requests.forEach(function (r) { if (!notMine(r)) secs[r.section] = 1; });
-  var h = '<main><div class="row" style="align-items:center"><h1>All requests</h1><button type="button" class="cyp-btn btn" data-a="tab" data-id="more">Back</button></div>' +
+  var h = '<main><div class="row" style="align-items:center"><h1>All requests</h1><button type="button" class="cyp-btn btn" data-a="back">Back</button></div>' +
     '<div class="btns"><select class="cyp-input in" data-f="fStatus" data-r="1" aria-label="Status">' + options([['', 'Every status']].concat(FIN_STATUSES.map(function (s) { return [s, PILL[s][0]]; })), f.fStatus) + '</select><select class="cyp-input in" data-f="fSec" data-r="1" aria-label="Section">' + options([['', 'Every section']].concat(Object.keys(secs).map(function (c) { return [c, secName(c)]; })), f.fSec) + '</select></div>' +
     '<div class="s m">' + plural(list.length, 'request', 'requests') + '</div>';
   if (f.fMonth) h += '<div class="cyp-note box" id="all-month"><div>' + MOL[Number(f.fMonth.slice(5)) - 1] + ' ' + f.fMonth.slice(0, 4) + ' only.</div><button type="button" class="cyp-btn btn" data-a="allMonths">Show every month</button></div>';
@@ -1404,7 +1444,7 @@ function scrAll() {
   return h + '</main>';
 }
 function scrPeople() {
-  var v = V(), h = '<main><div class="row" style="align-items:center"><h1>People</h1><button type="button" class="cyp-btn btn" data-a="tab" data-id="more">Back</button></div><button type="button" class="cyp-btn cyp-btn--primary btn pri" data-a="personNew">Add a person</button><div class="cyp-rows">';
+  var v = V(), h = '<main><div class="row" style="align-items:center"><h1>People</h1><button type="button" class="cyp-btn btn" data-a="back">Back</button></div><button type="button" class="cyp-btn cyp-btn--primary btn pri" data-a="personNew">Add a person</button><div class="cyp-rows">';
   v.users.slice().sort(byPosition).forEach(function (u) { h += '<div class="cyp-row user"><span class="cyp-disc cyp-disc--sm cyp-c-blue">' + di('user').replace(' class="cyp-icon"', '') + '</span><div class="cyp-row__text"><b>' + esc(titleOf(u)) + '</b><span>' + esc(u.name) + (u.active === false ? ' (off)' : '') + ' · ' + esc(roleText(u)) + '</span></div>' + openBtn('personEdit', u.id) + '</div>'; });
   return h + '</div></main>';
 }
@@ -1413,7 +1453,7 @@ function comList() { var done = !!S.ui.form.cDone; return (V().comments || []).f
 function comLine(c) { return comWhen(c) + ' | ' + c.byName + (c.demo ? ' (demo)' : '') + ' | ' + c.page + (c.target ? ' | "' + c.target + '"' : '') + '\n' + c.text; }
 function scrComments() {
   var all = V().comments || [], open = all.filter(function (c) { return !c.done; }).length, done = !!S.ui.form.cDone, list = comList();
-  var h = '<main><div class="row" style="align-items:center"><h1>Comments on the app</h1><button type="button" class="cyp-btn btn" data-a="tab" data-id="more">Back</button></div>' +
+  var h = '<main><div class="row" style="align-items:center"><h1>Comments on the app</h1><button type="button" class="cyp-btn btn" data-a="back">Back</button></div>' +
     '<fieldset class="cyp-choice" id="com-filter"><legend>Comments</legend><div class="cyp-choice__row"><label><input type="radio" name="com-f" data-a="comFilter" data-id=""' + (done ? '' : ' checked') + '><span>Open (' + open + ')</span></label><label><input type="radio" name="com-f" data-a="comFilter" data-id="1"' + (done ? ' checked' : '') + '><span>Done (' + (all.length - open) + ')</span></label></div></fieldset>';
   if (!list.length) h += '<div class="s m">' + (done ? 'Nothing marked as done.' : 'No open comments.') + '</div>';
   else if (!done) h += '<textarea id="com-copy" class="cyp-input in" rows="2" readonly style="position:absolute;left:-9999px" aria-hidden="true" tabindex="-1">' + esc(list.map(comLine).join('\n\n')) + '</textarea><button type="button" class="cyp-btn btn" data-a="copyText" data-id="com-copy">Copy the open comments</button>';
@@ -1613,7 +1653,7 @@ function sendDemoComments() {
     return false;
   }).catch(function () { S.comSending = false; return false; });
 }
-function go(tab) { S.ui.enter = true; S.thanks = ''; S.ui.viewer = null; S.ui.tab = tab; S.ui.err = ''; S.ui.msg = ''; S.ui.modal = null; S.ui.merr = ''; S.ui.keepScroll = false; render(); }
+function go(tab, back) { if (!back && S.ui.tab && S.ui.tab !== tab) S.ui.hist = (S.ui.hist || []).concat([S.ui.tab]).slice(-20); S.ui.enter = true; S.thanks = ''; S.ui.viewer = null; S.ui.tab = tab; S.ui.err = ''; S.ui.msg = ''; S.ui.modal = null; S.ui.merr = ''; S.ui.keepScroll = false; render(); }
 function openModal(x, m) { S.ui.rise = true; S.ui.modal = x; S.ui.m = m || {}; S.ui.merr = ''; render(); }
 function refreshBoxes() {
   var f = S.ui.form, a = document.getElementById('linebox'), b = document.getElementById('noticebox'), s = document.getElementById('sendbtn');
@@ -1904,7 +1944,7 @@ function exportSheets() {
 var EXPORTS = { week: 'week', soon: 'coming-up', mine: 'my-requests', decide: 'to-decide', dead: 'deadlines', month: 'by-section', pay: 'to-pay', rec: 'receipts', over: 'overview', plan: 'spending-plan', all: 'requests', people: 'people', budget: 'budget', comments: 'comments', report: 'report' };
 function budgetOrder(list, get) { return S.ui.form.bOrder === 'file' ? list : list.slice().sort(function (a, b) { return get(b) - get(a); }); }
 function scrBudget() {
-  var f = S.ui.form, open = f.bsec, all = budgetSections(), whole = FIN_BUDGET.total, h = '<main><div class="row" style="align-items:center"><h1>Budget ' + FIN_BUDGET.year + '</h1><button type="button" class="cyp-btn btn" data-a="tab" data-id="more">Back</button></div>';
+  var f = S.ui.form, open = f.bsec, all = budgetSections(), whole = FIN_BUDGET.total, h = '<main><div class="row" style="align-items:center"><h1>Budget ' + FIN_BUDGET.year + '</h1><button type="button" class="cyp-btn btn" data-a="back">Back</button></div>';
   h += field('Order', 'bg-order', '<select class="cyp-input in" id="bg-order" data-f="bOrder" data-r="1">' + options([['', 'Highest first'], ['file', 'As in the budget']], f.bOrder || '') + '</select>');
   if (finSeesAll(S.me)) h += tiles([tileK('Total', whole, plural(all.length, 'section', 'sections'))]);
   budgetOrder(all, function (s) { return s.total; }).forEach(function (s) {
@@ -1926,6 +1966,7 @@ function scrBudget() {
 }
 
 var H = {
+  back: function () { var hs = (S.ui.hist || []).slice(), t = hs.pop(); while (t && t === S.ui.tab) t = hs.pop(); S.ui.hist = hs; go(t || tabsFor()[0][0], true); },
   tab: function (el) { if (el.dataset.id === 'new' && S.ui.tab !== 'new') { S.ui.form = {}; } if (el.dataset.id === 'more' && S.ui.tab !== 'more') S.ui.from = S.ui.tab; go(el.dataset.id); },
   noticeOk: function () { S.notices = []; S.thanks = ''; render(); },
   pasteLink: function () {
@@ -2176,13 +2217,16 @@ var H = {
   },
   unpay: function (el) { var r = act('unpay', { id: el.dataset.id }); if (!r.ok) S.notices.push(errText(r.error)); render(); },
   wkLines: function () { S.ui.form.wkLines = !S.ui.form.wkLines; render(); },
+  monEdit: function () { var f = S.ui.form; f.monEdit = !f.monEdit; if (!f.monEdit) Object.keys(f).forEach(function (k) { if (k === 'meur' || k === 'mrate' || /^[td]\d+$/.test(k)) delete f[k]; }); S.ui.keepScroll = true; render(); },
   monthSave: function () {
     var f = S.ui.form, ym = today().slice(0, 7), mm = monthMoney(ym), st = V().settings, did = 0, bad = '', rows = [], seen = {}, own = {};
     function val(x) { return x === '' || x == null ? null : Number(x); }
     function send(d) { var r = act('week_money', d); if (r.ok) did++; else bad = errText(r.error); }
     function stop(t) { S.notices.push(t); render(); }
-    var e = val(f.mexp);
-    if (e !== null && !(e >= 0)) return stop('Write the amounts as numbers.');
+    var eu0 = (st.monthEur || {})[ym] || {}, eur = f.meur != null ? val(f.meur) : (eu0.eur != null ? eu0.eur : null), rate = f.mrate != null ? val(f.mrate) : (eu0.rate != null ? eu0.rate : null);
+    if ((eur !== null && !(eur >= 0)) || (rate !== null && !(rate > 0))) return stop('Write the euros and the rate as numbers.');
+    if ((f.meur != null || f.mrate != null) && (eur === null) !== (rate === null)) return stop('Write the euros and the exchange rate.');
+    var e = eur !== null && rate !== null ? Math.round(eur * rate * 100) / 100 : null, eChanged = (f.meur != null || f.mrate != null) && (e !== mm.exp || eur !== eu0.eur || rate !== eu0.rate);
     mm.list.forEach(function (x) { own[x.wk] = 1; });
     for (var i = 0; i < Math.max(3, mm.list.length); i++) {
       var o = mm.list[i] || null, amt = f['t' + i] != null ? val(f['t' + i]) : (o ? o.amount : null), dt = f['d' + i] || (o ? o.date : today());
@@ -2195,11 +2239,11 @@ var H = {
       }
       rows.push({ o: o, amt: amt, dt: dt });
     }
-    if (f.mexp != null && e !== mm.exp) send({ kind: 'month', month: ym, amount: e });
+    if (eChanged) send({ kind: 'month', month: ym, amount: e, eur: eur, rate: rate });
     rows.forEach(function (x) { if (x.o && (x.amt === null || finWeekKey(x.dt) !== x.o.wk)) send({ week: x.o.wk, kind: 'received', amount: null }); });
     rows.forEach(function (x) { if (x.amt !== null && (!x.o || x.amt !== x.o.amount || x.dt !== x.o.date)) send({ week: x.dt, kind: 'received', amount: x.amt, date: x.dt }); });
-    if (bad) S.notices.push(bad); else if (did) S.thanks = 'Saved.'; else S.notices.push('Write the money expected or the money received.');
-    Object.keys(f).forEach(function (k) { if (k === 'mexp' || /^[td]\d+$/.test(k)) delete f[k]; });
+    if (bad) S.notices.push(bad); else if (did) { S.thanks = 'Saved.'; f.monEdit = false; } else S.notices.push('Write the money expected or the money received.');
+    Object.keys(f).forEach(function (k) { if (k === 'mexp' || k === 'meur' || k === 'mrate' || /^[td]\d+$/.test(k)) delete f[k]; });
     render();
   },
   dlNew: function () { openModal({ type: 'dl', id: '' }, { section: S.me.sections.length === 1 ? S.me.sections[0] : '' }); },
@@ -2317,6 +2361,7 @@ document.addEventListener('input', function (ev) {
     if (t.dataset.f === 'month') formMonth();
     if (t.dataset.r) { render(); return; }
     if (t.dataset.mo) { var mt = document.getElementById('mo-total'); if (mt) mt.textContent = money(moTotal()); }
+    if (t.dataset.ek) { var ek = document.getElementById('acc-expk'); if (ek) ek.textContent = expKText(today().slice(0, 7)); }
     if (t.dataset.b) refreshBoxes();
   } else if (t.dataset.m) {
     S.ui.m[t.dataset.m] = t.type === 'checkbox' ? t.checked : t.value;
