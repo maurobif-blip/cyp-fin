@@ -136,7 +136,7 @@ img.photo{max-width:100%;border:1px solid var(--line)}
 <script src="core.js"></script>
 <script>
 'use strict';
-var FIN_VERSION = 'beta 1.5';
+var FIN_VERSION = 'beta 1.6';
 
 /* ================= small tools ================= */
 function esc(s) { return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]; }); }
@@ -556,6 +556,7 @@ function formLines() {
 function lineBoxes() { var f = S.ui.form; return formLines().map(function (x) { return lineBox(x.line, x.amount, true, f.needed); }).join(''); }
 var PRIO_MEAN = { P1: 'Essential: cannot be postponed', P2: 'Necessary: timing is flexible', P3: 'Optional: can be avoided' };
 var PLANNED = [['yes', 'Yes'], ['no', 'No'], ['unsure', 'Unsure']];
+function prioText(r) { return r.prio ? esc(r.prio) : 'Priority: by the Reviewer'; }
 function plannedText(x) { return x === 'yes' ? 'Yes' : x === 'no' ? 'No' : x === 'unsure' ? 'Unsure' : ''; }
 /* the standard form asks why and whether it was planned; a request from the plan was planned */
 function askWhy() { return !isItemForm(); }
@@ -749,7 +750,7 @@ function reqNo(r) { return r.no ? esc(r.no) : 'Not sent yet'; }
 /* the position of a person, shown first at sign in: it stays when the person changes */
 function titleOf(u) {
   if (u.title) return u.title;
-  if (u.role === 'director') return 'Director'; if (u.role === 'accountant') return 'Reviewer';
+  if (u.role === 'director') return 'Director'; if (u.role === 'accountant') { var rp = finRevParts(u); return rp.length === 2 ? 'Social and Commercial' : rp[0] === 'S' ? 'Social' : 'Commercial'; }
   if (u.role === 'viewer') return u.admin ? 'Administrator' : 'Can look';
   var s = (u.sections || []).map(secName);
   return s.length ? 'Head ' + s.slice(0, 2).join(', ') + (s.length > 2 ? ' and ' + (s.length - 2) + ' more' : '') : 'Section head';
@@ -861,7 +862,7 @@ function scrLogin() {
     var sico = { ask: 'plus', review: 'search', approve: 'check', admin: 'settings' };
     h = '<main class="fin-home">' + (S.ui.msg ? '<div class="cyp-banner cyp-banner--warn box warn">' + di('triangle-alert') + esc(S.ui.msg) + '</div>' : '') + '<h1>What do you need to do?</h1>' + (S.users.length ? '' : noList) + '<div class="list">' + STREAMS.map(function (st, n) {
       return '<button type="button" class="cyp-btn cyp-btn--block' + (n ? '' : ' cyp-btn--primary') + ' btn stream" id="st-' + st[0] + '" data-a="stream" data-id="' + st[0] + '">' + di(sico[st[0]]) + st[1] + '</button>';
-    }).join('') + '</div><div class="list"><button type="button" class="cyp-btn cyp-btn--block btn" id="st-all" data-a="stream" data-id="all">' + di('banknote') + 'Pay and other</button>';
+    }).join('') + '</div><div class="list">';
     if (S.cfg.mode === 'demo' && S.shared) h += '<button type="button" class="cyp-btn cyp-btn--block btn" data-a="leaveDemo">Leave the demo</button>';
     else h += '<button type="button" class="cyp-btn cyp-btn--block btn" data-a="forget">Use another link</button>';
     if (S.cfg.mode === 'shared') h += '<button type="button" class="cyp-btn cyp-btn--block btn" data-a="demo">Try the demo</button><span class="cyp-field__help">Invented data.</span>';
@@ -918,7 +919,7 @@ function reqDoc(r) {
   var v = V(), now = new Date(), isC = counted(r, v.settings), kf = isC && r.closed && r.amount > 0 ? finPaid(r) / r.amount : 1;
   var kv = function (l, val, wide) { return '<div' + (wide ? ' class="wide"' : '') + '><dt class="label-caps">' + l + '</dt><dd>' + (val || '') + '</dd></div>'; };
   var h = '<div class="cyp-doc"><header class="cyp-dochead"><img src="ds/cyp-seal.png" alt="Cicetekelo Youth Project"><div><div class="cyp-dochead__org label-caps">Cicetekelo Youth Project</div><h1 class="heading-2">Payment request</h1></div><dl><dt>Section</dt><dd>' + esc(secName(r.section)) + '</dd><dt>Number</dt><dd>' + reqNo(r) + '</dd><dt>Made by</dt><dd>CYP FIN</dd></dl></header>';
-  h += '<dl class="cyp-kv">' + kv('Requested by', esc(r.byName)) + kv('Date', d3(r.created)) + kv('Needed on', d3(r.needed)) + kv('Priority', esc(r.prio) + (r.emergency ? ', Emergency' : '')) + kv('Pay by', payText(r)) + kv('State in CYP FIN', esc((PILL[r.status] || PILL.Waiting)[0]) + (r.decidedBy && r.decidedAt ? ', ' + esc(r.decidedBy) + ', ' + d3(finToday(r.decidedAt)) : '')) + kv('What', esc(r.what), true) + (r.purpose ? kv('Why it is needed', esc(r.purpose), true) : '') + (r.planned ? kv('Planned', plannedText(r.planned)) : '') + (r.emergency ? kv('Reason of the Emergency', esc(r.reason) + (r.why ? ': ' + esc(r.why) : ''), true) : '') + '</dl>';
+  h += '<dl class="cyp-kv">' + kv('Requested by', esc(r.byName)) + kv('Date', d3(r.created)) + kv('Needed on', d3(r.needed)) + kv('Priority', prioText(r) + (r.emergency ? ', Emergency' : '')) + kv('Pay by', payText(r)) + kv('State in CYP FIN', esc((PILL[r.status] || PILL.Waiting)[0]) + (r.decidedBy && r.decidedAt ? ', ' + esc(r.decidedBy) + ', ' + d3(finToday(r.decidedAt)) : '')) + kv('What', esc(r.what), true) + (r.purpose ? kv('Why it is needed', esc(r.purpose), true) : '') + (r.planned ? kv('Planned', plannedText(r.planned)) : '') + (r.emergency ? kv('Reason of the Emergency', esc(r.reason) + (r.why ? ': ' + esc(r.why) : ''), true) : '') + '</dl>';
   var rows;
   if (r.items && r.month) rows = r.items.map(function (it) { return [esc(LINE[it.line] ? LINE[it.line].name : it.lineName || it.line), '', '', it.amount]; });
   else if (isRows(r)) rows = r.items.map(function (it) { var q = it.qty == null ? 1 : it.qty; return [esc(it.what || it.lineName || ''), kw(q) + (it.unit ? ' ' + esc(it.unit) : ''), it.price != null ? k2(it.price) : '', it.amount]; });
@@ -1002,9 +1003,9 @@ function reqCard(r, opt) {
   opt = opt || {};
   var lnk = !opt.actions, h = '<div class="cyp-card card tap' + (lnk ? ' fin-link"' + lk('openReq', r.id) : '"') + '>';
   if (r.emergency && opt.band) h += '<div class="cyp-card__band band">' + di('triangle-alert') + 'Emergency</div><div class="cyp-note cyp-note--warn"><b>Emergency: ' + esc(r.reason) + (r.why ? ': ' + esc(r.why) : '') + '</b><p>' + esc(secName(r.section)) + ': ' + plural(emCount(r.section), 'Emergency request', 'Emergency requests') + ' this month</p></div>';
-  if (opt.sec) h += '<div class="wrap"><span class="sec">' + secDisc(r.section) + esc(secName(r.section)) + '</span><span class="cyp-tag tag">' + esc(r.prio) + '</span>' + (finPart(r.section) === 'C' ? '<span class="cyp-tag tag">Commercial</span>' : '') + '</div>';
+  if (opt.sec) h += '<div class="wrap"><span class="sec">' + secDisc(r.section) + esc(secName(r.section)) + '</span><span class="cyp-tag tag">' + prioText(r) + '</span>' + (finPart(r.section) === 'C' ? '<span class="cyp-tag tag">Commercial</span>' : '') + '</div>';
   h += '<div class="row">' + (lnk ? '<div class="b">' + esc(r.what) + '</div><div class="b num fin-amt">' + money(r.amount) + goIcon() + '</div>' : '<button type="button" class="cyp-row__open" data-a="openReq" data-id="' + esc(r.id) + '"><b>' + esc(r.what) + '</b>' + goIcon() + '</button><div class="b num">' + money(r.amount) + '</div>') + '</div>';
-  h += '<div class="s m">' + (opt.sec ? '' : esc(r.prio) + ' · ') + 'Needed ' + day(r.needed) + ' · ' + plural(r.notice, 'working day', 'working days') + ' notice · ' + payText(r) + '</div>';
+  h += '<div class="s m">' + (opt.sec ? '' : prioText(r) + ' · ') + 'Needed ' + day(r.needed) + ' · ' + plural(r.notice, 'working day', 'working days') + ' notice · ' + payText(r) + '</div>';
   if ((opt.review || opt.budget) && (r.purpose || r.planned)) h += (r.purpose ? '<div class="s">Why: ' + esc(r.purpose) + '</div>' : '') + (r.planned ? '<div class="s m">Planned: ' + plannedText(r.planned) + '</div>' : '');
   if (accAsked(r)) h += '<div class="s b" style="color:var(--warn)">Asked by the Reviewer for the section</div>';
   else if (isFixedReq(r)) h += '<div class="s m">Fixed cost</div>';
@@ -1119,15 +1120,15 @@ function scrNew() {
   }
   if (ed) h += '<div class="cyp-note cyp-note--warn box em"><div class="b">The Director asks to change:</div><div>' + esc(ed.note) + '</div></div><div class="sec">' + esc(secName(ed.section)) + '</div>';
   else if (item) h += '';
-  else if (secs.length > 1) {
-    var both = secs.some(function (c) { return finPart(c) === 'S'; }) && secs.some(function (c) { return finPart(c) === 'C'; });
-    if (both) {
-      if (!f.div) f.div = f.section ? finPart(f.section) : 'S';
-      h += '<fieldset class="cyp-choice field" id="rq-div"><legend>Division</legend><div class="cyp-choice__row">' + [['S', 'Social'], ['C', 'Commercial']].map(function (p) { return '<label><input type="radio" name="rq-div-r" data-a="setDiv" data-id="' + p[0] + '"' + (f.div === p[0] ? ' checked' : '') + '><span>' + p[1] + '</span></label>'; }).join('') + '</div></fieldset>';
-    }
-    var dsecs = both ? secs.filter(function (c) { return finPart(c) === f.div; }) : secs;
+  else if (secs.length) {
+    var has = { S: secs.some(function (c) { return finPart(c) === 'S'; }), C: secs.some(function (c) { return finPart(c) === 'C'; }) }, both = has.S && has.C;
+    if (!f.div || !has[f.div]) f.div = f.section ? finPart(f.section) : has.S ? 'S' : 'C';
+    var revs = V().users.filter(function (x) { return x.active !== false && x.role === 'accountant' && finRevParts(x).indexOf(f.div) >= 0; }).map(function (x) { return x.name; });
+    h += '<fieldset class="cyp-choice field" id="rq-div"><legend>Division</legend><div class="cyp-choice__row">' + [['S', 'Social'], ['C', 'Commercial']].map(function (p) { return '<label><input type="radio" name="rq-div-r" data-a="setDiv" data-id="' + p[0] + '"' + (f.div === p[0] ? ' checked' : '') + (has[p[0]] ? '' : ' disabled') + '><span>' + p[1] + '</span></label>'; }).join('') + '</div><span class="cyp-field__help" id="rq-div-rev">' + (revs.length ? 'Reviewed by ' + esc(revs.join(', ')) : 'No reviewer for this part yet.') + '</span></fieldset>';
+    var dsecs = secs.filter(function (c) { return finPart(c) === f.div; });
+    if (dsecs.length === 1) f.section = dsecs[0];
     if (f.section && dsecs.indexOf(f.section) < 0) f.section = '';
-    h += field('Department', 'rq-sec', '<select class="cyp-input in" id="rq-sec" data-f="section" data-r="1">' + options([['', 'Choose one']].concat(dsecs.map(function (c) { return [c, secName(c)]; })), f.section) + '</select>');
+    h += field('Department', 'rq-sec', '<select class="cyp-input in" id="rq-sec" data-f="section" data-r="1">' + options((dsecs.length > 1 ? [['', 'Choose one']] : []).concat(dsecs.map(function (c) { return [c, secName(c)]; })), f.section) + '</select>');
   }
   var multi = canItems(ed), xs = multi ? xItems() : [], plain = plainAsk();
   if (!multi) f.nx = 0;
@@ -1181,10 +1182,10 @@ function scrNew() {
   if (askWhy()) h += '<div class="cyp-field field"><label for="rq-purpose">Why is this expenditure needed?</label><textarea class="cyp-input in" id="rq-purpose" data-f="purpose" rows="3" maxlength="300">' + esc(f.purpose || '') + '</textarea></div>';
   h += '<div id="linebox">' + (plain ? secBox(f.section, formTotal()) : lineBoxes()) + '</div>';
   h += field('When is it needed?', 'rq-date', input('rq-date', 'needed', f.needed, 'date', 'data-b="1"'), 'Ask at least ' + V().settings.noticeDays + ' working days before.');
-  h += '<fieldset class="cyp-choice field" id="rq-prio"><legend>Priority</legend><div class="cyp-field__help" id="rq-prio-help">' + ['P1', 'P2', 'P3'].map(function (p) { return '<div><b>' + p + '</b> ' + PRIO_MEAN[p] + '</div>'; }).join('') + '</div><div class="cyp-choice__row">' + [['P1', 'P1'], ['P2', 'P2'], ['P3', 'P3']].map(function (p) { return '<label><input type="radio" name="rq-prio-r" data-a="setPrio" data-id="' + p[0] + '"' + (f.prio === p[0] ? ' checked' : '') + '><span>' + p[1] + '</span></label>'; }).join('') + '</div></fieldset>';
+  if (!plain) h += '<fieldset class="cyp-choice field" id="rq-prio"><legend>Priority</legend><div class="cyp-field__help" id="rq-prio-help">' + ['P1', 'P2', 'P3'].map(function (p) { return '<div><b>' + p + '</b> ' + PRIO_MEAN[p] + '</div>'; }).join('') + '</div><div class="cyp-choice__row">' + [['P1', 'P1'], ['P2', 'P2'], ['P3', 'P3']].map(function (p) { return '<label><input type="radio" name="rq-prio-r" data-a="setPrio" data-id="' + p[0] + '"' + (f.prio === p[0] ? ' checked' : '') + '><span>' + p[1] + '</span></label>'; }).join('') + '</div></fieldset>';
   if (askWhy()) h += '<fieldset class="cyp-choice field" id="rq-planned"><legend>Was this expenditure planned?</legend><div class="cyp-choice__row">' + PLANNED.map(function (p) { return '<label><input type="radio" name="rq-planned-r" data-a="setPlanned" data-id="' + p[0] + '"' + (f.planned === p[0] ? ' checked' : '') + '><span>' + p[1] + '</span></label>'; }).join('') + '</div></fieldset>';
   h += '<fieldset class="cyp-choice field" id="rq-pay"><legend>Pay by</legend><div class="cyp-choice__row">' + [['bank', 'Bank or mobile money'], ['cash', 'Cash']].map(function (p) { return '<label><input type="radio" name="rq-pay-r" data-a="setPay" data-id="' + p[0] + '"' + (f.pay === p[0] ? ' checked' : '') + '><span>' + p[1] + '</span></label>'; }).join('') + '</div></fieldset>';
-  h += field('Quotation or pro forma invoice, photo', 'rq-photo', '<input class="cyp-input in" id="rq-photo" type="file" accept="image/*" data-photo="form">') + (f.photo ? '<div class="good s" role="status">Photo added.</div>' : '');
+  h += field('Upload supporting document: invoice, quotation, monthly plan', 'rq-photo', '<input class="cyp-input in" id="rq-photo" type="file" accept="image/*,application/pdf" data-photo="form">', 'A photo or a PDF.') + (f.photo ? '<div class="good s" role="status">' + (f.photo.mime === 'application/pdf' ? 'Document added.' : 'Photo added.') + '</div>' : '');
   h += '<div id="noticebox">' + noticeBox() + '</div>';
   if (S.ui.err) h += '<div class="cyp-banner cyp-banner--danger box err" role="alert">' + di('circle-x') + '' + esc(S.ui.err) + '</div>';
   h += '<button type="button" id="sendbtn" class="cyp-btn cyp-btn--primary cyp-btn--block btn big ' + (isShort() ? 'em' : 'pri') + '" data-a="send">' + (ed ? (isShort() ? 'Send again as Emergency' : 'Send again') : (isShort() ? 'Send as Emergency' : 'Send request')) + '</button>' + (ed ? '<button type="button" class="cyp-btn btn" data-a="reviseCancel">Do not change now</button>' : '') + (item ? '<button type="button" class="cyp-btn btn" data-a="tab" data-id="' + (S.me.role === 'head' ? 'soon' : 'dead') + '">Back</button>' : '') + '</main>';
@@ -1502,7 +1503,7 @@ function modal() {
   if (x.type === 'req') {
     var r = finFind(V().requests, x.id); if (!r) { S.ui.modal = null; return ''; }
     var own = r.by === S.me.id || S.me.sections.indexOf(r.section) >= 0, acc = S.me.role === 'accountant';
-    h += '<div class="row"><h1>' + reqNo(r) + '</h1>' + pill(r) + '</div><div class="cyp-card card"><div class="wrap"><span class="sec">' + secDisc(r.section) + esc(secName(r.section)) + '</span><span class="cyp-tag tag">' + esc(r.prio) + '</span>' + (r.emergency ? '<span class="cyp-tag cyp-tag--warn pill em">' + di('triangle-alert') + 'Emergency</span>' : '') + '</div><div class="row"><div class="b">' + esc(r.what) + '</div><div class="b num">' + money(r.amount) + '</div></div>' +
+    h += '<div class="row"><h1>' + reqNo(r) + '</h1>' + pill(r) + '</div><div class="cyp-card card"><div class="wrap"><span class="sec">' + secDisc(r.section) + esc(secName(r.section)) + '</span><span class="cyp-tag tag">' + prioText(r) + '</span>' + (r.emergency ? '<span class="cyp-tag cyp-tag--warn pill em">' + di('triangle-alert') + 'Emergency</span>' : '') + '</div><div class="row"><div class="b">' + esc(r.what) + '</div><div class="b num">' + money(r.amount) + '</div></div>' +
       '<div class="s">Needed ' + day(r.needed) + ' · asked ' + day(r.created) + ' by ' + esc(r.byName) + (accAsked(r) ? ' (Reviewer, for the section)' : '') + ' · ' + plural(r.notice, 'working day', 'working days') + ' notice · ' + payText(r) + '</div>' + (r.food ? '<div class="s num">' + foodText(r) + '</div>' : '') +
       (r.emergency ? '<div class="s" style="color:var(--warn)">' + esc(r.reason) + ': ' + esc(r.why) + '</div>' : '') + (r.purpose ? '<div class="s" id="md-purpose">Why: ' + esc(r.purpose) + '</div>' : '') + (r.planned ? '<div class="s m">Planned: ' + plannedText(r.planned) + '</div>' : '') + '</div>' + (isRows(r) ? '<div class="cyp-card card" id="rq-rows">' + rowsHtml(r) + '</div>' : '') + reqBoxes(r);
     if (r.items && r.month) { h += '<div class="cyp-card card">'; r.items.forEach(function (it) { h += '<div class="row"><div>' + esc(LINE[it.line] ? LINE[it.line].name : it.lineName || it.line) + '</div><div class="num">' + money(it.amount) + '</div></div>'; }); h += '</div>'; }
@@ -1517,6 +1518,7 @@ function modal() {
     if (r.closed) hist += '<div class="s num">Closed. Not paid: ' + money(restOf(r)) + '</div>';
     if (r.receipt) hist += '<div class="s">Receipt added by ' + esc(r.receiptBy) + ', ' + when(r.receiptAt) + (r.spent != null ? ' · spent ' + money(r.spent) + (r.amount - r.spent > 0 ? ' · not spent ' + money(Math.round((r.amount - r.spent) * 100) / 100) : '') : '') + '</div>';
     if (hist) h += '<div class="cyp-card card">' + hist + '</div>';
+    if (x.pdf) h += '<a class="cyp-btn btn" id="md-pdf" href="' + x.pdf + '" download="' + esc(reqNo(r)) + '-document.pdf" target="_blank" rel="noopener">' + di('file-text') + 'Open the PDF</a>';
     if (x.img) h += '<img class="photo" alt="Photo" src="' + x.img + '" data-a="viewOpen"><button type="button" class="cyp-btn btn" data-a="viewOpen">Open the photo bigger</button>';
     if (x.wait) h += '<div class="s m">' + esc(x.wait) + '</div>';
     var b = '';
@@ -1524,7 +1526,7 @@ function modal() {
     if (r.receiptFile) b += '<button type="button" class="cyp-btn btn" data-a="seeFile" data-id="' + esc(r.receiptFile) + '">See the receipt</button>';
     b += '<button type="button" class="cyp-btn btn" id="md-print" data-a="printReq" data-id="' + esc(r.id) + '">' + di('printer') + 'Print</button>';
     h += '<div class="btns">' + b + '</div>';
-    if (!r.quoteFile && (own || acc) && r.status !== 'Cancelled' && r.status !== 'Paid' && r.status !== 'Not approved') h += '<div class="cyp-field field"><label for="md-quote">Add the photo of the quotation</label><input class="cyp-input in" id="md-quote" type="file" accept="image/*" data-photo="quote"></div>';
+    if (!r.quoteFile && (own || acc) && r.status !== 'Cancelled' && r.status !== 'Paid' && r.status !== 'Not approved') h += '<div class="cyp-field field"><label for="md-quote">Add a supporting document: invoice, quotation, monthly plan</label><input class="cyp-input in" id="md-quote" type="file" accept="image/*,application/pdf" data-photo="quote"></div>';
     if (r.status === 'Paid' && !r.receipt && (own || acc)) h += '<div class="cyp-card card">' + mField('Amount spent, in Kwacha', 'md-spent', 'spent', 'number', 'min="0" inputmode="decimal"') + '<div class="cyp-field field"><label for="md-rec">Photo of the receipt</label><input class="cyp-input in" id="md-rec" type="file" accept="image/*" data-photo="receipt"></div>' + (m.photo ? '<div class="good s">Photo added.</div>' : '') + '<button type="button" class="cyp-btn cyp-btn--primary btn pri" data-a="receipt" data-id="' + esc(r.id) + '">' + (m.photo ? 'Save the receipt' : 'Save without a photo') + '</button></div>';
     if (r.status === 'To revise' && (own || acc)) h += '<button type="button" class="cyp-btn btn" data-a="reviseOpen" data-id="' + esc(r.id) + '">Change and send again</button>';
     if (r.status === 'Review' && finReviews(S.me, r.section) && r.by !== S.me.id) h += '<button type="button" class="cyp-btn btn" data-a="revOpen" data-id="' + esc(r.id) + '">Review</button>';
@@ -1643,7 +1645,10 @@ function render() {
   if (S.ui.viewer) h += '<div class="viewer" role="dialog" aria-modal="true" aria-label="Photo"><div class="vbar"><button type="button" class="cyp-btn btn" data-a="viewZoom" data-id="-1"' + (S.ui.viewer.zoom <= 1 ? ' disabled' : '') + '>Smaller</button><button type="button" class="cyp-btn btn" data-a="viewZoom" data-id="1"' + (S.ui.viewer.zoom >= 5 ? ' disabled' : '') + '>Bigger</button><button type="button" class="cyp-btn btn" data-a="viewClose">Close</button></div><div class="vscroll"><img id="viewer-img" alt="Photo" src="' + S.ui.viewer.src + '" style="width:' + (S.ui.viewer.zoom * 100) + '%"></div></div>';
   h += comButton();
   app.className = S.picking ? 'picking' : ''; document.body.classList.toggle('cyp-commenting', !!S.picking);
+  var oldBar = app.querySelector('header.cyp-appbar');
   app.innerHTML = h;
+  var newBar = app.querySelector('header.cyp-appbar');
+  if (oldBar && newBar && oldBar.outerHTML === newBar.outerHTML) newBar.parentNode.replaceChild(oldBar, newBar);
   var mn = app.querySelector('main'); if (mn) { mn.classList.add('cyp-content'); if (app.querySelector('nav.cyp-tabbar')) mn.classList.add('cyp-has-tabbar'); if (S.ui.enter) mn.classList.add('cyp-enter'); if (isWide() && (S.ui.tab === 'all' || S.ui.tab === 'report')) mn.classList.add('cyp-content--wide'); }
   S.ui.enter = false; S.ui.rise = false; countUp();
   Array.prototype.forEach.call(app.querySelectorAll('.cyp-card__band'), function (b) { b.parentNode.classList.add('cyp-card--band'); });
@@ -1696,6 +1701,11 @@ function refreshBoxes() {
 
 /* ================= photos: made small before they are kept ================= */
 function readPhoto(file) {
+  /* a PDF goes as it is, up to about 1 MB (what the database takes) */
+  if (file && file.type === 'application/pdf') return new Promise(function (res, rej) {
+    if (file.size > 1100000) return rej(new Error('big'));
+    var fr = new FileReader(); fr.onload = function () { var d = String(fr.result); res({ mime: 'application/pdf', b64: d.slice(d.indexOf(',') + 1) }); }; fr.onerror = function () { rej(new Error('photo')); }; fr.readAsDataURL(file);
+  });
   return new Promise(function (res, rej) {
     var url = URL.createObjectURL(file), img = new Image();
     img.onload = function () {
@@ -2074,7 +2084,7 @@ var H = {
     if (isItemForm()) { var gp = monthLine(f.section, f.line, f.month); if (gp && gp.dates.length > 1 && amount > 0) parts = splitParts(amount, gp.dates); }
     else if (ptEd && ptEd.parts && ptEd.parts.length > 1 && amount > 0) parts = splitParts(amount, ptEd.parts.map(function (p) { return p.date; }));
     var fd = isF ? { people: Number(f.fpeople), qty: Number(f.fqty), unit: f.funit || 'kg', price: Number(f.fprice), stock: Number(f.fstock) } : null;
-    if (!f.line && !plain) miss.push('the budget line'); if (askWhy() && !String(f.purpose || '').trim()) miss.push('why it is needed'); if (!f.prio) miss.push('the priority'); if (!finIsDate(f.needed)) miss.push('the date');
+    if (!f.line && !plain) miss.push('the budget line'); if (askWhy() && !String(f.purpose || '').trim()) miss.push('why it is needed'); if (!f.prio && !plain) miss.push('the priority'); if (!finIsDate(f.needed)) miss.push('the date');
     if (askWhy() && !f.planned) miss.push('whether it was planned');
     if (short && !f.reason) miss.push('why it is an Emergency'); if (short && !String(f.why || '').trim()) miss.push('a few words to explain');
     if (miss.length) { S.ui.err = 'Still missing: ' + miss.join(', ') + '.'; return render(); }
@@ -2112,9 +2122,9 @@ var H = {
   modalBg: function (el, ev) { if (ev.target === el) H.closeModal(); },
   cancelReq: function (el) { var r = act('req_cancel', { id: el.dataset.id }); if (!r.ok) { S.ui.merr = errText(r.error); } render(); },
   seeFile: function (el) {
-    var x = S.ui.modal, id = el.dataset.id; x.img = ''; x.wait = 'Opening the photo...'; render();
+    var x = S.ui.modal, id = el.dataset.id; x.img = ''; x.pdf = ''; x.wait = 'Opening the photo...'; render();
     if (id === 'pending') { x.wait = 'The photo is still on the phone of who added it. It arrives when that phone has internet.'; return render(); }
-    call({ action: 'file_get', user: S.me.id, cred: S.cred, id: id }).then(function (res) { x.wait = ''; if (res.ok) x.img = 'data:' + res.mime + ';base64,' + res.b64; else x.wait = 'The photo was not found.'; render(); }).catch(function () { x.wait = 'No internet: the photo cannot be opened now.'; render(); });
+    call({ action: 'file_get', user: S.me.id, cred: S.cred, id: id }).then(function (res) { x.wait = ''; if (res.ok && res.mime === 'application/pdf') x.pdf = 'data:application/pdf;base64,' + res.b64; else if (res.ok) x.img = 'data:' + res.mime + ';base64,' + res.b64; else x.wait = 'The photo was not found.'; render(); }).catch(function () { x.wait = 'No internet: the photo cannot be opened now.'; render(); });
   },
   viewOpen: function () { var x = S.ui.modal; if (!x || !x.img) return; S.ui.viewer = { src: x.img, zoom: 1 }; S.ui.keepScroll = true; render(); },
   viewZoom: function (el) { var v = S.ui.viewer; if (!v) return; v.zoom = Math.max(1, Math.min(5, v.zoom + Number(el.dataset.id))); S.ui.keepScroll = true; render(); },
@@ -2411,7 +2421,7 @@ document.addEventListener('change', function (ev) {
     if (kind === 'form') { S.ui.form.photo = p; render(); }
     else if (kind === 'receipt') { S.ui.m.photo = p; render(); }
     else if (kind === 'quote') { var r = act('quote_add', { id: S.ui.modal.id, photo: p }); if (!r.ok) S.ui.merr = errText(r.error); render(); }
-  }).catch(function () { if (S.ui.modal) S.ui.merr = ERR.photo; else S.ui.err = ERR.photo; render(); });
+  }).catch(function (e) { var m = e && e.message === 'big' ? 'The PDF is too big: up to 1 MB. Send a photo of it instead.' : ERR.photo; if (S.ui.modal) S.ui.merr = m; else S.ui.err = m; render(); });
 });
 try { var mq900 = window.matchMedia('(min-width:900px)'), mqf = function () { if (S.me && S.ui.tab === 'all') render(); }; if (mq900.addEventListener) mq900.addEventListener('change', mqf); else if (mq900.addListener) mq900.addListener(mqf); } catch (e) {}
 document.addEventListener('keydown', function (ev) {
