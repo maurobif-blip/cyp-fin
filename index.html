@@ -136,7 +136,7 @@ img.photo{max-width:100%;border:1px solid var(--line)}
 <script src="core.js"></script>
 <script>
 'use strict';
-var FIN_VERSION = 'beta 1.4';
+var FIN_VERSION = 'beta 1.5';
 
 /* ================= small tools ================= */
 function esc(s) { return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]; }); }
@@ -554,7 +554,12 @@ function formLines() {
   return order.map(function (l) { return { line: l, amount: Math.round(m[l] * 100) / 100 }; });
 }
 function lineBoxes() { var f = S.ui.form; return formLines().map(function (x) { return lineBox(x.line, x.amount, true, f.needed); }).join(''); }
-function t0Text() { var f = S.ui.form, a = Number(f.amount) || 0; return a > 0 && ((Number(f.nx) || 0) > 0 || qty0() !== 1) ? money(a) : ''; }
+var PRIO_MEAN = { P1: 'Essential: cannot be postponed', P2: 'Necessary: timing is flexible', P3: 'Optional: can be avoided' };
+var PLANNED = [['yes', 'Yes'], ['no', 'No'], ['unsure', 'Unsure']];
+function plannedText(x) { return x === 'yes' ? 'Yes' : x === 'no' ? 'No' : x === 'unsure' ? 'Unsure' : ''; }
+/* the standard form asks why and whether it was planned; a request from the plan was planned */
+function askWhy() { return !isItemForm(); }
+function t0Text() { var f = S.ui.form, a = Number(f.amount) || 0; return a > 0 && ((Number(f.nx) || 0) > 0 || (qty0() !== 1 && !askWhy())) ? money(a) : ''; }
 /* the amounts of the form: item 1 is quantity x unit cost (for food, quantity x price), then the other items, then the total */
 function amtSync() {
   var f = S.ui.form;
@@ -562,6 +567,7 @@ function amtSync() {
   else if (!isItemForm()) { var a = Math.round(qty0() * Number(f.price) * 100) / 100; f.amount = a > 0 ? String(a) : ''; }
   if (isItemForm()) return;
   var e = document.getElementById('rq-t0'); if (e) e.textContent = t0Text();
+  e = document.getElementById('rq-tot'); if (e) e.textContent = formTotal() > 0 ? money(formTotal()) : 'K 0';
   xItems().forEach(function (x) { var el = document.getElementById('rq-t' + x.i); if (el) el.textContent = xAmount(x) > 0 ? money(xAmount(x)) : ''; });
   e = document.getElementById('rq-total'); if (e) e.textContent = formTotal() > 0 ? money(formTotal()) : '';
 }
@@ -912,7 +918,7 @@ function reqDoc(r) {
   var v = V(), now = new Date(), isC = counted(r, v.settings), kf = isC && r.closed && r.amount > 0 ? finPaid(r) / r.amount : 1;
   var kv = function (l, val, wide) { return '<div' + (wide ? ' class="wide"' : '') + '><dt class="label-caps">' + l + '</dt><dd>' + (val || '') + '</dd></div>'; };
   var h = '<div class="cyp-doc"><header class="cyp-dochead"><img src="ds/cyp-seal.png" alt="Cicetekelo Youth Project"><div><div class="cyp-dochead__org label-caps">Cicetekelo Youth Project</div><h1 class="heading-2">Payment request</h1></div><dl><dt>Section</dt><dd>' + esc(secName(r.section)) + '</dd><dt>Number</dt><dd>' + reqNo(r) + '</dd><dt>Made by</dt><dd>CYP FIN</dd></dl></header>';
-  h += '<dl class="cyp-kv">' + kv('Requested by', esc(r.byName)) + kv('Date', d3(r.created)) + kv('Needed on', d3(r.needed)) + kv('Priority', esc(r.prio) + (r.emergency ? ', Emergency' : '')) + kv('Pay by', payText(r)) + kv('State in CYP FIN', esc((PILL[r.status] || PILL.Waiting)[0]) + (r.decidedBy && r.decidedAt ? ', ' + esc(r.decidedBy) + ', ' + d3(finToday(r.decidedAt)) : '')) + kv('What', esc(r.what), true) + (r.emergency ? kv('Reason of the Emergency', esc(r.reason) + (r.why ? ': ' + esc(r.why) : ''), true) : '') + '</dl>';
+  h += '<dl class="cyp-kv">' + kv('Requested by', esc(r.byName)) + kv('Date', d3(r.created)) + kv('Needed on', d3(r.needed)) + kv('Priority', esc(r.prio) + (r.emergency ? ', Emergency' : '')) + kv('Pay by', payText(r)) + kv('State in CYP FIN', esc((PILL[r.status] || PILL.Waiting)[0]) + (r.decidedBy && r.decidedAt ? ', ' + esc(r.decidedBy) + ', ' + d3(finToday(r.decidedAt)) : '')) + kv('What', esc(r.what), true) + (r.purpose ? kv('Why it is needed', esc(r.purpose), true) : '') + (r.planned ? kv('Planned', plannedText(r.planned)) : '') + (r.emergency ? kv('Reason of the Emergency', esc(r.reason) + (r.why ? ': ' + esc(r.why) : ''), true) : '') + '</dl>';
   var rows;
   if (r.items && r.month) rows = r.items.map(function (it) { return [esc(LINE[it.line] ? LINE[it.line].name : it.lineName || it.line), '', '', it.amount]; });
   else if (isRows(r)) rows = r.items.map(function (it) { var q = it.qty == null ? 1 : it.qty; return [esc(it.what || it.lineName || ''), kw(q) + (it.unit ? ' ' + esc(it.unit) : ''), it.price != null ? k2(it.price) : '', it.amount]; });
@@ -999,6 +1005,7 @@ function reqCard(r, opt) {
   if (opt.sec) h += '<div class="wrap"><span class="sec">' + secDisc(r.section) + esc(secName(r.section)) + '</span><span class="cyp-tag tag">' + esc(r.prio) + '</span>' + (finPart(r.section) === 'C' ? '<span class="cyp-tag tag">Commercial</span>' : '') + '</div>';
   h += '<div class="row">' + (lnk ? '<div class="b">' + esc(r.what) + '</div><div class="b num fin-amt">' + money(r.amount) + goIcon() + '</div>' : '<button type="button" class="cyp-row__open" data-a="openReq" data-id="' + esc(r.id) + '"><b>' + esc(r.what) + '</b>' + goIcon() + '</button><div class="b num">' + money(r.amount) + '</div>') + '</div>';
   h += '<div class="s m">' + (opt.sec ? '' : esc(r.prio) + ' · ') + 'Needed ' + day(r.needed) + ' · ' + plural(r.notice, 'working day', 'working days') + ' notice · ' + payText(r) + '</div>';
+  if ((opt.review || opt.budget) && (r.purpose || r.planned)) h += (r.purpose ? '<div class="s">Why: ' + esc(r.purpose) + '</div>' : '') + (r.planned ? '<div class="s m">Planned: ' + plannedText(r.planned) + '</div>' : '');
   if (accAsked(r)) h += '<div class="s b" style="color:var(--warn)">Asked by the Reviewer for the section</div>';
   else if (isFixedReq(r)) h += '<div class="s m">Fixed cost</div>';
   if (r.selfRev && !accAsked(r)) h += '<div class="s b" style="color:var(--warn)">Asked by the reviewer</div>';
@@ -1112,13 +1119,22 @@ function scrNew() {
   }
   if (ed) h += '<div class="cyp-note cyp-note--warn box em"><div class="b">The Director asks to change:</div><div>' + esc(ed.note) + '</div></div><div class="sec">' + esc(secName(ed.section)) + '</div>';
   else if (item) h += '';
-  else if (secs.length > 1) h += field('Department', 'rq-sec', '<select class="cyp-input in" id="rq-sec" data-f="section" data-r="1">' + options([['', 'Choose one']].concat(secs.map(function (c) { return [c, secName(c)]; })), f.section) + '</select>');
+  else if (secs.length > 1) {
+    var both = secs.some(function (c) { return finPart(c) === 'S'; }) && secs.some(function (c) { return finPart(c) === 'C'; });
+    if (both) {
+      if (!f.div) f.div = f.section ? finPart(f.section) : 'S';
+      h += '<fieldset class="cyp-choice field" id="rq-div"><legend>Division</legend><div class="cyp-choice__row">' + [['S', 'Social'], ['C', 'Commercial']].map(function (p) { return '<label><input type="radio" name="rq-div-r" data-a="setDiv" data-id="' + p[0] + '"' + (f.div === p[0] ? ' checked' : '') + '><span>' + p[1] + '</span></label>'; }).join('') + '</div></fieldset>';
+    }
+    var dsecs = both ? secs.filter(function (c) { return finPart(c) === f.div; }) : secs;
+    if (f.section && dsecs.indexOf(f.section) < 0) f.section = '';
+    h += field('Department', 'rq-sec', '<select class="cyp-input in" id="rq-sec" data-f="section" data-r="1">' + options([['', 'Choose one']].concat(dsecs.map(function (c) { return [c, secName(c)]; })), f.section) + '</select>');
+  }
   var multi = canItems(ed), xs = multi ? xItems() : [], plain = plainAsk();
   if (!multi) f.nx = 0;
   var peopleField = function () { return field('For how many people', 'rq-fpeople', input('rq-fpeople', 'fpeople', f.fpeople, 'number', 'min="1" inputmode="numeric"')); };
   if (!item) {
     if (xs.length) h += field('Name of the request', 'rq-title', input('rq-title', 'title', f.title, 'text', 'placeholder="Example: bus service for November"')) + '<div class="cyp-card card item"><div class="b">Item 1</div>';
-    h += field('What do you need?', 'rq-what', input('rq-what', 'what', f.what, 'text', 'placeholder="Example: footballs"'));
+    h += field('What are you requesting?', 'rq-what', input('rq-what', 'what', f.what, 'text', 'placeholder="Example: footballs"'));
     if (!plain) h += field('Budget line', 'rq-line', '<select class="cyp-input in" id="rq-line" data-f="line" data-r="1">' + lineOptions(f.section, f.line) + '</select>');
   }
   if (isFoodForm()) {
@@ -1161,11 +1177,14 @@ function scrNew() {
   if (xs.length && xs.concat([{ line: f.line }]).some(function (x) { return xFood(x.line); })) h += peopleField();
   if (xs.length) h += '<div class="cyp-field field"><div class="lab">Total</div><div class="b num" id="rq-total">' + (formTotal() > 0 ? money(formTotal()) : '') + '</div></div>';
   if (item) { var gi = monthLine(f.section, f.line, f.month); if (gi && gi.dates.length > 1) h += '<div class="s m" id="rq-parts">Paid in ' + gi.dates.length + ' parts, from ' + day(gi.dates[0]) + ' to ' + day(gi.dates[gi.dates.length - 1]) + '.</div>'; }
+  if (askWhy()) h += '<div class="cyp-stat" id="rq-tile"><span class="cyp-stat__label label-caps">Total requested</span><span class="cyp-stat__figure figure num fin-k" id="rq-tot">' + (formTotal() > 0 ? money(formTotal()) : 'K 0') + '</span></div>';
+  if (askWhy()) h += '<div class="cyp-field field"><label for="rq-purpose">Why is this expenditure needed?</label><textarea class="cyp-input in" id="rq-purpose" data-f="purpose" rows="3" maxlength="300">' + esc(f.purpose || '') + '</textarea></div>';
   h += '<div id="linebox">' + (plain ? secBox(f.section, formTotal()) : lineBoxes()) + '</div>';
-  h += '<fieldset class="cyp-choice field" id="rq-prio"><legend>Priority</legend><div class="cyp-choice__row">' + [['P1', 'P1'], ['P2', 'P2'], ['P3', 'P3']].map(function (p) { return '<label><input type="radio" name="rq-prio-r" data-a="setPrio" data-id="' + p[0] + '"' + (f.prio === p[0] ? ' checked' : '') + '><span>' + p[1] + '</span></label>'; }).join('') + '</div></fieldset>';
-  h += field('Date you need the money', 'rq-date', input('rq-date', 'needed', f.needed, 'date', 'data-b="1"'), 'Ask at least ' + V().settings.noticeDays + ' working days before.');
+  h += field('When is it needed?', 'rq-date', input('rq-date', 'needed', f.needed, 'date', 'data-b="1"'), 'Ask at least ' + V().settings.noticeDays + ' working days before.');
+  h += '<fieldset class="cyp-choice field" id="rq-prio"><legend>Priority</legend><div class="cyp-field__help" id="rq-prio-help">' + ['P1', 'P2', 'P3'].map(function (p) { return '<div><b>' + p + '</b> ' + PRIO_MEAN[p] + '</div>'; }).join('') + '</div><div class="cyp-choice__row">' + [['P1', 'P1'], ['P2', 'P2'], ['P3', 'P3']].map(function (p) { return '<label><input type="radio" name="rq-prio-r" data-a="setPrio" data-id="' + p[0] + '"' + (f.prio === p[0] ? ' checked' : '') + '><span>' + p[1] + '</span></label>'; }).join('') + '</div></fieldset>';
+  if (askWhy()) h += '<fieldset class="cyp-choice field" id="rq-planned"><legend>Was this expenditure planned?</legend><div class="cyp-choice__row">' + PLANNED.map(function (p) { return '<label><input type="radio" name="rq-planned-r" data-a="setPlanned" data-id="' + p[0] + '"' + (f.planned === p[0] ? ' checked' : '') + '><span>' + p[1] + '</span></label>'; }).join('') + '</div></fieldset>';
   h += '<fieldset class="cyp-choice field" id="rq-pay"><legend>Pay by</legend><div class="cyp-choice__row">' + [['bank', 'Bank or mobile money'], ['cash', 'Cash']].map(function (p) { return '<label><input type="radio" name="rq-pay-r" data-a="setPay" data-id="' + p[0] + '"' + (f.pay === p[0] ? ' checked' : '') + '><span>' + p[1] + '</span></label>'; }).join('') + '</div></fieldset>';
-  h += field('Photo of the quotation', 'rq-photo', '<input class="cyp-input in" id="rq-photo" type="file" accept="image/*" data-photo="form">') + (f.photo ? '<div class="good s" role="status">Photo added.</div>' : '');
+  h += field('Quotation or pro forma invoice, photo', 'rq-photo', '<input class="cyp-input in" id="rq-photo" type="file" accept="image/*" data-photo="form">') + (f.photo ? '<div class="good s" role="status">Photo added.</div>' : '');
   h += '<div id="noticebox">' + noticeBox() + '</div>';
   if (S.ui.err) h += '<div class="cyp-banner cyp-banner--danger box err" role="alert">' + di('circle-x') + '' + esc(S.ui.err) + '</div>';
   h += '<button type="button" id="sendbtn" class="cyp-btn cyp-btn--primary cyp-btn--block btn big ' + (isShort() ? 'em' : 'pri') + '" data-a="send">' + (ed ? (isShort() ? 'Send again as Emergency' : 'Send again') : (isShort() ? 'Send as Emergency' : 'Send request')) + '</button>' + (ed ? '<button type="button" class="cyp-btn btn" data-a="reviseCancel">Do not change now</button>' : '') + (item ? '<button type="button" class="cyp-btn btn" data-a="tab" data-id="' + (S.me.role === 'head' ? 'soon' : 'dead') + '">Back</button>' : '') + '</main>';
@@ -1485,7 +1504,7 @@ function modal() {
     var own = r.by === S.me.id || S.me.sections.indexOf(r.section) >= 0, acc = S.me.role === 'accountant';
     h += '<div class="row"><h1>' + reqNo(r) + '</h1>' + pill(r) + '</div><div class="cyp-card card"><div class="wrap"><span class="sec">' + secDisc(r.section) + esc(secName(r.section)) + '</span><span class="cyp-tag tag">' + esc(r.prio) + '</span>' + (r.emergency ? '<span class="cyp-tag cyp-tag--warn pill em">' + di('triangle-alert') + 'Emergency</span>' : '') + '</div><div class="row"><div class="b">' + esc(r.what) + '</div><div class="b num">' + money(r.amount) + '</div></div>' +
       '<div class="s">Needed ' + day(r.needed) + ' · asked ' + day(r.created) + ' by ' + esc(r.byName) + (accAsked(r) ? ' (Reviewer, for the section)' : '') + ' · ' + plural(r.notice, 'working day', 'working days') + ' notice · ' + payText(r) + '</div>' + (r.food ? '<div class="s num">' + foodText(r) + '</div>' : '') +
-      (r.emergency ? '<div class="s" style="color:var(--warn)">' + esc(r.reason) + ': ' + esc(r.why) + '</div>' : '') + '</div>' + (isRows(r) ? '<div class="cyp-card card" id="rq-rows">' + rowsHtml(r) + '</div>' : '') + reqBoxes(r);
+      (r.emergency ? '<div class="s" style="color:var(--warn)">' + esc(r.reason) + ': ' + esc(r.why) + '</div>' : '') + (r.purpose ? '<div class="s" id="md-purpose">Why: ' + esc(r.purpose) + '</div>' : '') + (r.planned ? '<div class="s m">Planned: ' + plannedText(r.planned) + '</div>' : '') + '</div>' + (isRows(r) ? '<div class="cyp-card card" id="rq-rows">' + rowsHtml(r) + '</div>' : '') + reqBoxes(r);
     if (r.items && r.month) { h += '<div class="cyp-card card">'; r.items.forEach(function (it) { h += '<div class="row"><div>' + esc(LINE[it.line] ? LINE[it.line].name : it.lineName || it.line) + '</div><div class="num">' + money(it.amount) + '</div></div>'; }); h += '</div>'; }
     var hist = '';
     if (r.revised) hist += '<div class="s">Sent again after revision, ' + when(r.revisedAt) + (r.askedNote ? '. ' + (r.askedBy ? esc(r.askedBy) : 'The Director') + ' had asked: ' + esc(r.askedNote) : '') + '</div>';
@@ -1839,10 +1858,10 @@ function saveFile(name, blob) {
     window.claude.use('downloads').then(function (d) { if (!d) return plain(); return d.save({ filename: name, data: blob }); }).catch(function (e) { if (!e || e.code !== 'declined') { S.notices.push('The file could not be saved here.'); render(); } });
   } else plain();
 }
-function reqHead() { return ['No', 'Asked on', 'Section', 'What', 'Amount (K)', 'Priority', 'Needed on', 'Notice (working days)', 'Emergency', 'Reason', 'Pay by', 'Status', 'Asked by', 'Budget line code', 'Budget line', 'Activity', 'Budget of the line (K)', 'Approved on the line (K)', 'Decided by', 'Decided on', 'Note of the Director', 'Paid by', 'Paid on', 'Receipt', 'Quotation', 'Will be paid on', 'Sent again (times)', 'People', 'Quantity', 'Unit', 'Price per unit (K)', 'Left in the store', 'Spent (K)', 'Not spent (K)', 'Paid so far (K)', 'Parts', 'Asked by (role)', 'Part', 'Reviewed by', 'Reviewed on']; }
+function reqHead() { return ['No', 'Asked on', 'Section', 'What', 'Amount (K)', 'Priority', 'Needed on', 'Notice (working days)', 'Emergency', 'Reason', 'Pay by', 'Status', 'Asked by', 'Budget line code', 'Budget line', 'Activity', 'Budget of the line (K)', 'Approved on the line (K)', 'Decided by', 'Decided on', 'Note of the Director', 'Paid by', 'Paid on', 'Receipt', 'Quotation', 'Will be paid on', 'Sent again (times)', 'People', 'Quantity', 'Unit', 'Price per unit (K)', 'Left in the store', 'Spent (K)', 'Not spent (K)', 'Paid so far (K)', 'Parts', 'Asked by (role)', 'Part', 'Reviewed by', 'Reviewed on', 'Why needed', 'Planned']; }
 function reqRow(r) {
   var L = LINE[r.line], u = L ? lineUse(r.line) : null;
-  return [r.no || 'Not sent yet', r.created, secName(r.section), r.what, r.amount, r.prio, r.needed, r.notice, r.emergency ? 'Emergency' : '', r.emergency ? r.reason + ': ' + r.why : '', payText(r), (PILL[r.status] || PILL.Waiting)[0], r.byName, r.line === 'none' || r.line === 'several' ? '' : r.line, r.lineName || (r.line === 'none' ? 'Not in the budget' : ''), L ? L.act : '', L ? L.total : '', u ? u.used : '', r.decidedBy, r.decidedAt ? finToday(r.decidedAt) : '', r.note, r.paidBy, r.paidAt ? finToday(r.paidAt) : '', r.receipt ? 'Yes' : (r.status === 'Paid' ? 'Missing' : ''), r.quoteFile ? 'Yes' : 'No', r.payOn || '', r.revised || '', r.food ? r.food.people : '', r.food ? r.food.qty : '', r.food ? r.food.unit : '', r.food ? r.food.price : '', r.food ? r.food.stock : '', r.spent != null ? r.spent : '', r.spent != null ? Math.round((r.amount - r.spent) * 100) / 100 : '', finPaid(r), r.parts ? r.parts.length : 1, isFixedReq(r) ? 'Fixed cost' : ({ head: 'Section head', accountant: 'Reviewer, for the section', director: 'Director', viewer: 'Can look' })[roleOf(r)] || '', partText(r.section), r.revBy || (r.selfRev ? 'Asked by the reviewer' : ''), r.revAt ? finToday(r.revAt) : ''];
+  return [r.no || 'Not sent yet', r.created, secName(r.section), r.what, r.amount, r.prio, r.needed, r.notice, r.emergency ? 'Emergency' : '', r.emergency ? r.reason + ': ' + r.why : '', payText(r), (PILL[r.status] || PILL.Waiting)[0], r.byName, r.line === 'none' || r.line === 'several' ? '' : r.line, r.lineName || (r.line === 'none' ? 'Not in the budget' : ''), L ? L.act : '', L ? L.total : '', u ? u.used : '', r.decidedBy, r.decidedAt ? finToday(r.decidedAt) : '', r.note, r.paidBy, r.paidAt ? finToday(r.paidAt) : '', r.receipt ? 'Yes' : (r.status === 'Paid' ? 'Missing' : ''), r.quoteFile ? 'Yes' : 'No', r.payOn || '', r.revised || '', r.food ? r.food.people : '', r.food ? r.food.qty : '', r.food ? r.food.unit : '', r.food ? r.food.price : '', r.food ? r.food.stock : '', r.spent != null ? r.spent : '', r.spent != null ? Math.round((r.amount - r.spent) * 100) / 100 : '', finPaid(r), r.parts ? r.parts.length : 1, isFixedReq(r) ? 'Fixed cost' : ({ head: 'Section head', accountant: 'Reviewer, for the section', director: 'Director', viewer: 'Can look' })[roleOf(r)] || '', partText(r.section), r.revBy || (r.selfRev ? 'Asked by the reviewer' : ''), r.revAt ? finToday(r.revAt) : '', r.purpose || '', plannedText(r.planned)];
 }
 /* what was approved, by month of need, for each section and each budget line; and what is waiting now */
 function approvedData() {
@@ -2026,6 +2045,8 @@ var H = {
   },
   signOutAsk: function () { var q = myQueue().length; openModal({ type: 'ask', title: 'Sign out?', text: q ? q + ' changes are not sent yet. They stay on this phone and go when you sign in again with internet.' : 'You will need your PIN to enter again.', yes: 'signOut', yesText: 'Sign out' }); },
   signOut: function () { signOut(''); },
+  setDiv: function (el) { var f = S.ui.form; f.div = el.dataset.id; if (f.section && finPart(f.section) !== f.div) f.section = ''; S.ui.err = ''; render(); },
+  setPlanned: function (el) { S.ui.form.planned = el.dataset.id; S.ui.err = ''; render(); },
   setPrio: function (el) { S.ui.form.prio = el.dataset.id; S.ui.err = ''; render(); },
   setPay: function (el) { S.ui.form.pay = el.dataset.id; render(); },
   askNow: function (el) {
@@ -2053,7 +2074,8 @@ var H = {
     if (isItemForm()) { var gp = monthLine(f.section, f.line, f.month); if (gp && gp.dates.length > 1 && amount > 0) parts = splitParts(amount, gp.dates); }
     else if (ptEd && ptEd.parts && ptEd.parts.length > 1 && amount > 0) parts = splitParts(amount, ptEd.parts.map(function (p) { return p.date; }));
     var fd = isF ? { people: Number(f.fpeople), qty: Number(f.fqty), unit: f.funit || 'kg', price: Number(f.fprice), stock: Number(f.fstock) } : null;
-    if (!f.line && !plain) miss.push('the budget line'); if (!f.prio) miss.push('the priority'); if (!finIsDate(f.needed)) miss.push('the date');
+    if (!f.line && !plain) miss.push('the budget line'); if (askWhy() && !String(f.purpose || '').trim()) miss.push('why it is needed'); if (!f.prio) miss.push('the priority'); if (!finIsDate(f.needed)) miss.push('the date');
+    if (askWhy() && !f.planned) miss.push('whether it was planned');
     if (short && !f.reason) miss.push('why it is an Emergency'); if (short && !String(f.why || '').trim()) miss.push('a few words to explain');
     if (miss.length) { S.ui.err = 'Still missing: ' + miss.join(', ') + '.'; return render(); }
     var nameOf = function (l) { return l === 'none' ? 'Not in the budget' : (LINE[l] ? LINE[l].name : ''); }, lname = nameOf(f.line), again = !!f.editId, items = null, title = f.what;
@@ -2066,8 +2088,8 @@ var H = {
     }
     var ppl = multi && anyFood ? Number(f.fpeople) : null;
     var rid = again ? f.editId : uid();
-    var res = again ? act('req_edit', { id: f.editId, what: title, amount: amount, line: f.line, lineName: lname, prio: f.prio, needed: f.needed, pay: f.pay, food: fd, parts: parts, items: items, people: ppl, reason: f.reason || '', why: f.why || '', photo: f.photo || null })
-      : act('req_new', { id: rid, section: f.section, what: title, amount: amount, line: f.line, lineName: lname, prio: f.prio, needed: f.needed, pay: f.pay, food: fd, parts: parts, items: items, people: ppl, reason: f.reason || '', why: f.why || '', deadline: f.deadline || '', plan: f.plan || '', photo: f.photo || null, created: today() });
+    var res = again ? act('req_edit', { id: f.editId, what: title, amount: amount, line: f.line, lineName: lname, prio: f.prio, needed: f.needed, pay: f.pay, food: fd, parts: parts, items: items, people: ppl, reason: f.reason || '', why: f.why || '', purpose: askWhy() ? f.purpose || '' : undefined, planned: askWhy() ? f.planned || '' : undefined, photo: f.photo || null })
+      : act('req_new', { id: rid, section: f.section, what: title, amount: amount, line: f.line, lineName: lname, prio: f.prio, needed: f.needed, pay: f.pay, food: fd, parts: parts, items: items, people: ppl, reason: f.reason || '', why: f.why || '', purpose: askWhy() ? f.purpose || '' : '', planned: askWhy() ? f.planned || '' : (f.plan || isItemForm() ? 'yes' : ''), deadline: f.deadline || '', plan: f.plan || '', photo: f.photo || null, created: today() });
     if (!res.ok) { S.ui.err = errText(res.error); return render(); }
     S.ui.form = {};
     var sent = finFind(V().requests, rid), rv = !!sent && sent.status === 'Review';
@@ -2181,7 +2203,7 @@ var H = {
       monthlyLines(r.section, r.month).forEach(function (l) { if (!has[l.line]) mf['x_' + l.line] = true; });
       return go('monthly');
     }
-    S.ui.form = { editId: r.id, section: r.section, what: r.what, amount: String(r.amount), line: r.line, prio: r.prio, needed: r.needed, pay: r.pay, reason: r.reason || '', why: r.why || '' };
+    S.ui.form = { editId: r.id, section: r.section, what: r.what, amount: String(r.amount), line: r.line, prio: r.prio, needed: r.needed, pay: r.pay, reason: r.reason || '', why: r.why || '', purpose: r.purpose || '', planned: r.planned || '' };
     if (r.food) { var ff = S.ui.form; ff.fpeople = String(r.food.people); ff.fqty = String(r.food.qty); ff.funit = r.food.unit; ff.fprice = String(r.food.price); ff.fstock = String(r.food.stock); }
     if (r.items) {
       /* the items go back into the form: the first one in the form itself, the others as Item 2, 3 ... */
