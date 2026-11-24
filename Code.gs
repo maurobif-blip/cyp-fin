@@ -49,6 +49,29 @@ function finAddMonth(s) {
 }
 
 /* ---- people ---- */
+/* the money of the project (funding, tranches, cash) goes only to who sees everything (24/11) */
+var FIN_MONEY_KEYS = ['weeks', 'weeksDate', 'weeksExp', 'monthExp', 'monthEur', 'monthLog', 'tranche', 'cash'];
+function finPubSettings(s, all) {
+  if (all) return s;
+  var o = {}; for (var k in s) if (s.hasOwnProperty(k)) o[k] = s[k];
+  for (var i = 0; i < FIN_MONEY_KEYS.length; i++) o[FIN_MONEY_KEYS[i]] = FIN_MONEY_KEYS[i] === 'cash' ? [] : {};
+  return o;
+}
+/* a request approved for less than asked keeps what was asked; the parts in which it is needed follow the new amount */
+function finRestore(r) {
+  if (r.asked == null) return;
+  r.amount = r.asked; if (r.parts0) r.parts = r.parts0;
+  delete r.asked; delete r.parts0;
+}
+function finLower(r, a) {
+  var orig = r.amount; if (!(a < orig - 0.004)) return;
+  r.asked = orig;
+  if (r.parts && r.parts.length) {
+    r.parts0 = r.parts; var acc = 0, k = a / orig;
+    r.parts = r.parts.map(function (p, i, l) { var x = i < l.length - 1 ? Math.round(p.amount * k * 100) / 100 : Math.round((a - acc) * 100) / 100; acc += x; return { date: p.date, amount: x }; });
+  }
+  r.amount = a;
+}
 function finPublicUser(u) {
   return { id: u.id, name: u.name, title: u.title || '', role: u.role, sections: u.sections || [], reviews: u.reviews || [], admin: !!u.admin, active: u.active !== false, salt: u.salt, rev: u.rev || 0 };
 }
@@ -337,7 +360,21 @@ function finApply(db, u, op, nowIso, store, info) {
         s.monthExp[d.month] = ma;
         if (me !== null && mr !== null) s.monthEur[d.month] = { eur: me, rate: mr }; else delete s.monthEur[d.month];
       }
+      /* every change of the money expected in a month is kept: the first figure and its revisions */
+      if (!s.monthLog) s.monthLog = {};
+      var ml = s.monthLog[d.month] || (s.monthLog[d.month] = []);
+      ml.push({ amount: s.monthExp[d.month] != null ? s.monthExp[d.month] : null, at: nowIso, by: u.name }); if (ml.length > 30) ml.splice(0, ml.length - 30);
       bump(s); audit('Money for the month', d.month + ' ' + (s.monthExp[d.month] != null ? 'expected K' + s.monthExp[d.month] + (s.monthEur[d.month] ? ' (EUR ' + s.monthEur[d.month].eur + ' x ' + s.monthEur[d.month].rate + ')' : '') : 'removed'));
+      return { ok: true };
+    }
+    /* the cash counted in the bank and in the box: from that moment the cash is counted from this figure */
+    if (d.kind === 'cash') {
+      if (!s.cash) s.cash = [];
+      if (d.amount === null || d.amount === '') { if (!s.cash.length) return fail('fields'); s.cash.pop(); bump(s); audit('Cash counted', 'last count removed'); return { ok: true }; }
+      var ca = Math.round(Number(d.amount) * 100) / 100;
+      if (!(ca >= -1000000000 && ca <= 1000000000) || isNaN(ca)) return fail('fields');
+      s.cash.push({ amount: ca, at: nowIso, day: today, by: u.name }); if (s.cash.length > 60) s.cash.splice(0, s.cash.length - 60);
+      bump(s); audit('Cash counted', 'K' + ca);
       return { ok: true };
     }
     if (!finIsDate(d.week)) return fail('fields');
@@ -434,30 +471,41 @@ function finApply(db, u, op, nowIso, store, info) {
       touched(r, 'Sent back by the reviewer', r.note);
       return { ok: true };
     }
-    var ls = d.lines || [];
+    var ls = d.lines || [], rec = d.rec === '' || d.rec == null ? null : Math.round(Number(d.rec) * 100) / 100;
+    if (rec !== null && !(rec > 0 && rec <= r.amount)) return fail('rec');
     if (['P1', 'P2', 'P3'].indexOf(d.prio) < 0 && !r.prio) return fail('prio');
     if (ls.length !== r.items.length) return fail('line');
     for (var li = 0; li < ls.length; li++) if (!ls[li] || !ls[li].line) return fail('line');
     for (li = 0; li < ls.length; li++) { r.items[li].line = String(ls[li].line); r.items[li].lineName = finText(ls[li].lineName, 120); }
     var rl = {}; finItemLine({ items: r.items }, rl); r.line = rl.line; r.lineName = rl.lineName;
     if (['P1', 'P2', 'P3'].indexOf(d.prio) >= 0) r.prio = d.prio;
+    if (rec !== null && rec < r.amount - 0.004) r.rec = rec; else delete r.rec;
     r.revBy = u.name; r.revAt = nowIso; r.revNote = finText(d.note, 200);
     r.status = 'Waiting'; r.note = ''; r.noteBy = ''; r.decidedBy = ''; r.decidedAt = '';
-    touched(r, 'Reviewed', r.lineName + (r.revNote ? ': ' + r.revNote : ''));
+    touched(r, 'Reviewed', r.lineName + (r.rec != null ? ', recommended K' + r.rec : '') + (r.revNote ? ': ' + r.revNote : ''));
     return { ok: true };
   }
   if (t === 'decide') {
     if (u.role !== 'director') return fail('role');
     if (r.status === 'Review') return fail('status');
-    if (['Approved', 'Next week', 'Not approved', 'Waiting', 'To revise'].indexOf(d.status) < 0) return fail('fields');
+    if (['Approved', 'Next week', 'Not approved', 'Waiting', 'To revise', 'Review'].indexOf(d.status) < 0) return fail('fields');
     if (r.status === 'Paid' || r.status === 'Cancelled') return fail('status');
     if (r.pays && r.pays.length) return fail('status');      /* a part is already paid: the decision stays */
-    if (d.status === 'To revise' && !finText(d.note)) return fail('note');
-    r.status = d.status; r.note = finText(d.note, 200); r.noteBy = '';
+    if ((d.status === 'To revise' || d.status === 'Review') && !finText(d.note)) return fail('note');
+    /* back to the reviewer: only a request that a reviewer saw, still to decide */
+    if (d.status === 'Review' && (!r.items || !r.revAt || (r.status !== 'Waiting' && r.status !== 'Next week'))) return fail('status');
+    var orig = r.asked != null ? r.asked : r.amount, appr = null;
+    if (d.status === 'Approved' && d.amount != null && d.amount !== '') {
+      appr = Math.round(Number(d.amount) * 100) / 100;
+      if (!(appr > 0 && appr <= orig)) return fail('amount');
+    }
+    finRestore(r);
+    if (appr !== null) finLower(r, appr);
+    r.status = d.status; r.note = finText(d.note, 200); r.noteBy = d.status === 'Review' ? 'director' : '';
     if (d.status !== 'Approved') r.payOn = '';
     r.decidedBy = d.status === 'Waiting' ? '' : u.name; r.decidedAt = d.status === 'Waiting' ? '' : nowIso;
     r.week = d.status === 'Approved' ? finWeekKey(today) : '';
-    touched(r, d.status === 'Waiting' ? 'Decision undone' : d.status, r.note);
+    touched(r, d.status === 'Waiting' ? 'Decision undone' : d.status === 'Review' ? 'Sent back to the reviewer' : d.status, (r.asked != null ? 'K' + r.amount + ' of K' + r.asked + (r.note ? '. ' : '') : '') + r.note);
     return { ok: true };
   }
   /* the section changes a request the Director sent back, and it goes to the Director again */
@@ -486,7 +534,7 @@ function finApply(db, u, op, nowIso, store, info) {
     if (d.planned != null) r.planned = finPlanned(d.planned);
     var q2 = saveFile(d.photo, 'quotation-' + r.id + '-' + ((r.revised || 0) + 1)); if (q2) r.quoteFile = q2;
     r.status = toRev2 ? 'Review' : 'Waiting'; r.revised = (r.revised || 0) + 1; r.revisedAt = nowIso; r.askedNote = r.note; r.askedBy = r.noteBy === 'review' ? r.decidedBy : ''; r.decidedBy = ''; r.decidedAt = ''; r.week = '';
-    if (toRev2) { r.revBy = ''; r.revAt = ''; r.revNote = ''; }
+    if (toRev2) { r.revBy = ''; r.revAt = ''; r.revNote = ''; delete r.rec; }
     touched(r, 'Sent again after revision', what2 + ' K' + r.amount);
     return { ok: true };
   }
@@ -550,7 +598,7 @@ function finHandle(req, store) {
   var db = store.load() || finNewDb(), now = store.now(), a = req.action, i;
   function pub() { var out = []; for (var k = 0; k < db.users.length; k++) out.push(finPublicUser(db.users[k])); return out; }
 
-  if (a === 'hello') return { ok: true, empty: db.users.length === 0, users: pub(), settings: db.settings, rev: db.rev, now: now };
+  if (a === 'hello') return { ok: true, empty: db.users.length === 0, users: pub(), settings: finPubSettings(db.settings, false), rev: db.rev, now: now };
   if (a === 'first_admin') {
     if (db.users.length) return { ok: false, error: 'not_empty' };
     var nm = finText(req.name, 60);
@@ -646,7 +694,7 @@ function finHandle(req, store) {
   for (i = 0; i < db.deadlines.length; i++) if (db.deadlines[i].rev > since && (finSeesAll(u) || finHasSection(u, db.deadlines[i].section))) out.deadlines.push(db.deadlines[i]);
   /* the administrator reads all the comments; the others get back their own */
   for (i = 0; i < db.comments.length; i++) if (db.comments[i].rev > since && (u.admin || db.comments[i].by === u.id)) out.comments.push(db.comments[i]);
-  if ((db.settings.rev || 0) > since || full) out.settings = db.settings;
+  if ((db.settings.rev || 0) > since || full) out.settings = finPubSettings(db.settings, finSeesAll(u));
   return out;
 }
 
@@ -657,7 +705,7 @@ function finHandle(req, store) {
    Write the web app URL in WEB_APP_URL (near the end of this file) and run "link": the link for the staff appears in the sheet "link". */
 var SHEET_ID = ''; /* leave empty when the script is opened from inside the Sheet */
 var DB_FILE = 'cyp-fin-database.json';
-var REQ_HEAD = ['No', 'Sent', 'Section', 'What', 'Amount (K)', 'Budget line', 'Line name', 'Priority', 'Needed', 'Notice (working days)', 'Emergency', 'Reason', 'Pay by', 'Status', 'Asked by', 'Decided by', 'Decided at', 'Note', 'Paid by', 'Paid at', 'Receipt', 'Quotation photo', 'Receipt photo', 'Id', 'Will be paid on', 'Sent again', 'People', 'Quantity', 'Price per unit (K)', 'Left in the store', 'Spent (K)', 'Paid so far (K)', 'Why needed', 'Planned'];
+var REQ_HEAD = ['No', 'Sent', 'Section', 'What', 'Amount (K)', 'Budget line', 'Line name', 'Priority', 'Needed', 'Notice (working days)', 'Emergency', 'Reason', 'Pay by', 'Status', 'Asked by', 'Decided by', 'Decided at', 'Note', 'Paid by', 'Paid at', 'Receipt', 'Quotation photo', 'Receipt photo', 'Id', 'Will be paid on', 'Sent again', 'People', 'Quantity', 'Price per unit (K)', 'Left in the store', 'Spent (K)', 'Paid so far (K)', 'Why needed', 'Planned', 'Asked (K)', 'Recommended (K)'];
 var LOG_HEAD = ['Time', 'Who', 'Action', 'Request', 'Detail'];
 var COM_HEAD = ['Time', 'Who', 'From the demo', 'Screen', 'Word or place', 'Comment', 'Version', 'Phone', 'Done', 'Done by', 'Id'];
 var BOOK_ = null;
@@ -685,7 +733,7 @@ function mirror_(list) {
     var r = list[i], row = 0, last = sh.getLastRow();
     if (last > 1) { var hit = sh.getRange(2, idCol, last - 1, 1).createTextFinder(r.id).matchEntireCell(true).findNext(); if (hit) row = hit.getRow(); }
     if (!row) row = last + 1;
-    sh.getRange(row, 1, 1, REQ_HEAD.length).setValues([[r.no, r.created, r.section, r.what, r.amount, r.line, r.lineName, r.prio, r.needed, r.notice, r.emergency ? 'EMERGENCY' : '', r.emergency ? r.reason + ': ' + r.why : '', r.pay === 'cash' ? 'Cash' : 'Bank or mobile money', r.status, r.byName, r.decidedBy, when_(r.decidedAt), r.note, r.paidBy, when_(r.paidAt), r.receipt ? 'Yes' : (r.status === 'Paid' ? 'MISSING' : ''), fileLink_(r.quoteFile), fileLink_(r.receiptFile), r.id, r.payOn || '', r.revised ? r.revised + (r.revised === 1 ? ' time' : ' times') : '', r.food ? r.food.people : '', r.food ? r.food.qty + ' ' + r.food.unit : '', r.food ? r.food.price : '', r.food ? r.food.stock + ' ' + r.food.unit : '', r.spent != null ? r.spent : '', finPaid(r), r.purpose || '', r.planned === 'yes' ? 'Yes' : r.planned === 'no' ? 'No' : r.planned === 'unsure' ? 'Unsure' : '']]);
+    sh.getRange(row, 1, 1, REQ_HEAD.length).setValues([[r.no, r.created, r.section, r.what, r.amount, r.line, r.lineName, r.prio, r.needed, r.notice, r.emergency ? 'EMERGENCY' : '', r.emergency ? r.reason + ': ' + r.why : '', r.pay === 'cash' ? 'Cash' : 'Bank or mobile money', r.status, r.byName, r.decidedBy, when_(r.decidedAt), r.note, r.paidBy, when_(r.paidAt), r.receipt ? 'Yes' : (r.status === 'Paid' ? 'MISSING' : ''), fileLink_(r.quoteFile), fileLink_(r.receiptFile), r.id, r.payOn || '', r.revised ? r.revised + (r.revised === 1 ? ' time' : ' times') : '', r.food ? r.food.people : '', r.food ? r.food.qty + ' ' + r.food.unit : '', r.food ? r.food.price : '', r.food ? r.food.stock + ' ' + r.food.unit : '', r.spent != null ? r.spent : '', finPaid(r), r.purpose || '', r.planned === 'yes' ? 'Yes' : r.planned === 'no' ? 'No' : r.planned === 'unsure' ? 'Unsure' : '', r.asked != null ? r.asked : r.amount, r.rec != null ? r.rec : '']]);
   }
 }
 function comments_(list) {
