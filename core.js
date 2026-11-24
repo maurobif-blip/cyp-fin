@@ -73,7 +73,18 @@ var FIN_ANSWERED = [
   ['answered in alpha 0.23', 'Ana', 'Instead of accountant', '2026-11-23T00:00:00.000Z', '2026-11-24T00:00:00.000Z'],
   ['answered in alpha 0.24', 'Ana', 'I don', '2026-11-23T11:30:00.000Z', '2026-11-23T13:30:00.000Z'],
   ['answered in alpha 0.24', 'Ana', 'there is an issue, of when i create a user', '2026-11-23T11:30:00.000Z', '2026-11-23T13:30:00.000Z'],
-  ['answered in alpha 0.24', 'Ana', 'administrator should be able to see all', '2026-11-23T11:30:00.000Z', '2026-11-23T13:30:00.000Z']
+  ['answered in alpha 0.24', 'Ana', 'administrator should be able to see all', '2026-11-23T11:30:00.000Z', '2026-11-23T13:30:00.000Z'],
+  ['answered in beta 1.3', 'Ana', 'take out the :', '2026-11-24T06:00:00.000Z', '2026-11-24T08:00:00.000Z'],
+  ['answered in beta 1.3', 'Mr. Chiwele', 'When clicking on back', '2026-11-24T06:00:00.000Z', '2026-11-24T08:00:00.000Z'],
+  ['answered in beta 1.3', 'Mr. Chiwele', 'Expected in euros', '2026-11-24T06:00:00.000Z', '2026-11-24T08:00:00.000Z'],
+  ['answered in beta 1.3', 'Mr. Chiwele', 'This zone has too many text', '2026-11-24T06:00:00.000Z', '2026-11-24T08:00:00.000Z'],
+  ['answered in beta 1.6', 'Madame Chisha', 'When I click on the different priorities', '2026-11-24T07:00:00.000Z', '2026-11-24T13:00:00.000Z'],
+  ['answered in beta 1.6', 'Christoph', 'There should a choice', '2026-11-24T07:00:00.000Z', '2026-11-24T13:00:00.000Z'],
+  ['answered in beta 1.6', 'Christoph', 'I think the prirority', '2026-11-24T07:00:00.000Z', '2026-11-24T13:00:00.000Z'],
+  ['answered in beta 1.6', 'Christoph', 'The department should be here', '2026-11-24T07:00:00.000Z', '2026-11-24T13:00:00.000Z'],
+  ['answered in beta 1.6', 'Ana', 'Here the roles should be', '2026-11-24T07:00:00.000Z', '2026-11-24T13:00:00.000Z'],
+  ['answered in beta 1.6', 'Ana', 'Pay and other should be added after', '2026-11-24T07:00:00.000Z', '2026-11-24T13:00:00.000Z'],
+  ['answered in beta 1.6', 'Madame Chisha', 'Say: Uplaod', '2026-11-24T07:00:00.000Z', '2026-11-24T13:00:00.000Z']
 ];
 function finAnswer(db, nowIso) {
   var out = [], cs = db.comments || [], i, j;
@@ -198,7 +209,8 @@ function finApply(db, u, op, nowIso, store, info) {
     if (!what) return fail('what');
     if (!(amount > 0) || amount > 100000000) return fail('amount');
     if (!d.line && !toRev) return fail('line');
-    if (['P1', 'P2', 'P3'].indexOf(d.prio) < 0) return fail('prio');
+    /* a request that goes to the review may come without a priority: the reviewer sets it (beta 1.6) */
+    if (['P1', 'P2', 'P3'].indexOf(d.prio) < 0 && !(toRev && !d.prio)) return fail('prio');
     if (!finIsDate(d.needed)) return fail('date');
     var created = finIsDate(d.created) && d.created <= today && finDayNum(today) - finDayNum(d.created) <= 30 ? d.created : today;
     var notice = finWorkDays(created, d.needed), emergency = notice < s.noticeDays;
@@ -208,7 +220,7 @@ function finApply(db, u, op, nowIso, store, info) {
     if (emergency && (!finText(d.reason) || !finText(d.why))) return fail('reason');
     db.seq++;
     r = { id: String(d.id), no: 'R' + ('000' + db.seq).slice(-4), section: String(d.section), what: what, amount: Math.round(amount * 100) / 100,
-      line: String(d.line || ''), lineName: finText(d.lineName, 120), prio: d.prio, needed: d.needed, pay: d.pay === 'cash' ? 'cash' : 'bank',
+      line: String(d.line || ''), lineName: finText(d.lineName, 120), prio: d.prio || '', needed: d.needed, pay: d.pay === 'cash' ? 'cash' : 'bank',
       created: created, received: nowIso, notice: notice, emergency: emergency, reason: emergency ? finText(d.reason, 60) : '', why: emergency ? finText(d.why, 200) : '', purpose: finText(d.purpose, 300), planned: finPlanned(d.planned),
       by: u.id, byName: u.name, byRole: u.role, status: toRev ? 'Review' : 'Waiting', selfRev: !toRev && finReviewOn(s) && finReviews(u, d.section) && !planKey, decidedBy: '', decidedAt: '', note: '', week: '', paidBy: '', paidAt: '',
       receipt: false, receiptBy: '', receiptAt: '', quoteFile: saveFile(d.photo, 'quotation-' + d.id), receiptFile: '', deadline: d.deadline ? String(d.deadline) : '', plan: planKey, month: month, people: ppl, items: bundle ? bundle.items : null, food: food || null, parts: bundle ? null : finParts(d.parts, Math.round(amount * 100) / 100) };
@@ -423,6 +435,7 @@ function finApply(db, u, op, nowIso, store, info) {
       return { ok: true };
     }
     var ls = d.lines || [];
+    if (['P1', 'P2', 'P3'].indexOf(d.prio) < 0 && !r.prio) return fail('prio');
     if (ls.length !== r.items.length) return fail('line');
     for (var li = 0; li < ls.length; li++) if (!ls[li] || !ls[li].line) return fail('line');
     for (li = 0; li < ls.length; li++) { r.items[li].line = String(ls[li].line); r.items[li].lineName = finText(ls[li].lineName, 120); }
@@ -460,14 +473,14 @@ function finApply(db, u, op, nowIso, store, info) {
     if (!what2) return fail('what');
     if (!(amount2 > 0) || amount2 > 100000000) return fail('amount');
     if (!d.line && !toRev2) return fail('line');
-    if (['P1', 'P2', 'P3'].indexOf(d.prio) < 0) return fail('prio');
+    if (['P1', 'P2', 'P3'].indexOf(d.prio) < 0 && !(toRev2 && !d.prio)) return fail('prio');
     if (!finIsDate(d.needed)) return fail('date');
     var notice2 = finWorkDays(r.created, d.needed), em2 = notice2 < s.noticeDays;
     var reason2 = finText(d.reason, 60) || r.reason, why2 = finText(d.why, 200) || r.why;
     if (em2 && (!reason2 || !why2)) return fail('reason');
     r.items = bundle2 ? bundle2.items : null; r.people = ppl2;
     r.food = food2 || null; r.parts = bundle2 ? null : finParts(d.parts, Math.round(amount2 * 100) / 100);
-    r.what = what2; r.amount = Math.round(amount2 * 100) / 100; r.line = String(d.line || ''); r.lineName = finText(d.lineName, 120); r.prio = d.prio; r.needed = d.needed;
+    r.what = what2; r.amount = Math.round(amount2 * 100) / 100; r.line = String(d.line || ''); r.lineName = finText(d.lineName, 120); r.prio = d.prio || ''; r.needed = d.needed;
     r.pay = d.pay === 'cash' ? 'cash' : 'bank'; r.notice = notice2; r.emergency = em2; r.reason = em2 ? reason2 : ''; r.why = em2 ? why2 : '';
     if (d.purpose != null) r.purpose = finText(d.purpose, 300);
     if (d.planned != null) r.planned = finPlanned(d.planned);
