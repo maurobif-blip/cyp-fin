@@ -153,6 +153,7 @@ function finPaid(r) {
   return Math.round(s * 100) / 100;
 }
 function finMonthlySecs(s) { return s.monthly || ['SCH', 'FAM']; }
+function finPlanned(x) { return ['yes', 'no', 'unsure'].indexOf(String(x)) >= 0 ? String(x) : ''; }
 function finText(x, max) { return String(x == null ? '' : x).replace(/\s+/g, ' ').trim().slice(0, max || 200); }
 
 /* ---- one change. Returns {ok:true} or {ok:false, error:'...'}; "info" collects what the store must write ---- */
@@ -172,6 +173,7 @@ function finApply(db, u, op, nowIso, store, info) {
   }
 
   if (t === 'req_new') {
+    /* why the money is needed and whether it was planned: asked on the form of 24/11 (beta 1.5); both optional here */
     if (!finCanAskFor(u, d.section)) return fail('section');
     if (!d.id || finFind(db.requests, d.id)) return fail('id');
     var what = finText(d.what, 160), amount = Number(d.amount), bundle = null, month = '', ppl = 0, toRev = false;
@@ -207,7 +209,7 @@ function finApply(db, u, op, nowIso, store, info) {
     db.seq++;
     r = { id: String(d.id), no: 'R' + ('000' + db.seq).slice(-4), section: String(d.section), what: what, amount: Math.round(amount * 100) / 100,
       line: String(d.line || ''), lineName: finText(d.lineName, 120), prio: d.prio, needed: d.needed, pay: d.pay === 'cash' ? 'cash' : 'bank',
-      created: created, received: nowIso, notice: notice, emergency: emergency, reason: emergency ? finText(d.reason, 60) : '', why: emergency ? finText(d.why, 200) : '',
+      created: created, received: nowIso, notice: notice, emergency: emergency, reason: emergency ? finText(d.reason, 60) : '', why: emergency ? finText(d.why, 200) : '', purpose: finText(d.purpose, 300), planned: finPlanned(d.planned),
       by: u.id, byName: u.name, byRole: u.role, status: toRev ? 'Review' : 'Waiting', selfRev: !toRev && finReviewOn(s) && finReviews(u, d.section) && !planKey, decidedBy: '', decidedAt: '', note: '', week: '', paidBy: '', paidAt: '',
       receipt: false, receiptBy: '', receiptAt: '', quoteFile: saveFile(d.photo, 'quotation-' + d.id), receiptFile: '', deadline: d.deadline ? String(d.deadline) : '', plan: planKey, month: month, people: ppl, items: bundle ? bundle.items : null, food: food || null, parts: bundle ? null : finParts(d.parts, Math.round(amount * 100) / 100) };
     db.requests.push(r);
@@ -467,6 +469,8 @@ function finApply(db, u, op, nowIso, store, info) {
     r.food = food2 || null; r.parts = bundle2 ? null : finParts(d.parts, Math.round(amount2 * 100) / 100);
     r.what = what2; r.amount = Math.round(amount2 * 100) / 100; r.line = String(d.line || ''); r.lineName = finText(d.lineName, 120); r.prio = d.prio; r.needed = d.needed;
     r.pay = d.pay === 'cash' ? 'cash' : 'bank'; r.notice = notice2; r.emergency = em2; r.reason = em2 ? reason2 : ''; r.why = em2 ? why2 : '';
+    if (d.purpose != null) r.purpose = finText(d.purpose, 300);
+    if (d.planned != null) r.planned = finPlanned(d.planned);
     var q2 = saveFile(d.photo, 'quotation-' + r.id + '-' + ((r.revised || 0) + 1)); if (q2) r.quoteFile = q2;
     r.status = toRev2 ? 'Review' : 'Waiting'; r.revised = (r.revised || 0) + 1; r.revisedAt = nowIso; r.askedNote = r.note; r.askedBy = r.noteBy === 'review' ? r.decidedBy : ''; r.decidedBy = ''; r.decidedAt = ''; r.week = '';
     if (toRev2) { r.revBy = ''; r.revAt = ''; r.revNote = ''; }
@@ -640,7 +644,7 @@ function finHandle(req, store) {
    Write the web app URL in WEB_APP_URL (near the end of this file) and run "link": the link for the staff appears in the sheet "link". */
 var SHEET_ID = ''; /* leave empty when the script is opened from inside the Sheet */
 var DB_FILE = 'cyp-fin-database.json';
-var REQ_HEAD = ['No', 'Sent', 'Section', 'What', 'Amount (K)', 'Budget line', 'Line name', 'Priority', 'Needed', 'Notice (working days)', 'Emergency', 'Reason', 'Pay by', 'Status', 'Asked by', 'Decided by', 'Decided at', 'Note', 'Paid by', 'Paid at', 'Receipt', 'Quotation photo', 'Receipt photo', 'Id', 'Will be paid on', 'Sent again', 'People', 'Quantity', 'Price per unit (K)', 'Left in the store', 'Spent (K)', 'Paid so far (K)'];
+var REQ_HEAD = ['No', 'Sent', 'Section', 'What', 'Amount (K)', 'Budget line', 'Line name', 'Priority', 'Needed', 'Notice (working days)', 'Emergency', 'Reason', 'Pay by', 'Status', 'Asked by', 'Decided by', 'Decided at', 'Note', 'Paid by', 'Paid at', 'Receipt', 'Quotation photo', 'Receipt photo', 'Id', 'Will be paid on', 'Sent again', 'People', 'Quantity', 'Price per unit (K)', 'Left in the store', 'Spent (K)', 'Paid so far (K)', 'Why needed', 'Planned'];
 var LOG_HEAD = ['Time', 'Who', 'Action', 'Request', 'Detail'];
 var COM_HEAD = ['Time', 'Who', 'From the demo', 'Screen', 'Word or place', 'Comment', 'Version', 'Phone', 'Done', 'Done by', 'Id'];
 var BOOK_ = null;
@@ -668,7 +672,7 @@ function mirror_(list) {
     var r = list[i], row = 0, last = sh.getLastRow();
     if (last > 1) { var hit = sh.getRange(2, idCol, last - 1, 1).createTextFinder(r.id).matchEntireCell(true).findNext(); if (hit) row = hit.getRow(); }
     if (!row) row = last + 1;
-    sh.getRange(row, 1, 1, REQ_HEAD.length).setValues([[r.no, r.created, r.section, r.what, r.amount, r.line, r.lineName, r.prio, r.needed, r.notice, r.emergency ? 'EMERGENCY' : '', r.emergency ? r.reason + ': ' + r.why : '', r.pay === 'cash' ? 'Cash' : 'Bank or mobile money', r.status, r.byName, r.decidedBy, when_(r.decidedAt), r.note, r.paidBy, when_(r.paidAt), r.receipt ? 'Yes' : (r.status === 'Paid' ? 'MISSING' : ''), fileLink_(r.quoteFile), fileLink_(r.receiptFile), r.id, r.payOn || '', r.revised ? r.revised + (r.revised === 1 ? ' time' : ' times') : '', r.food ? r.food.people : '', r.food ? r.food.qty + ' ' + r.food.unit : '', r.food ? r.food.price : '', r.food ? r.food.stock + ' ' + r.food.unit : '', r.spent != null ? r.spent : '', finPaid(r)]]);
+    sh.getRange(row, 1, 1, REQ_HEAD.length).setValues([[r.no, r.created, r.section, r.what, r.amount, r.line, r.lineName, r.prio, r.needed, r.notice, r.emergency ? 'EMERGENCY' : '', r.emergency ? r.reason + ': ' + r.why : '', r.pay === 'cash' ? 'Cash' : 'Bank or mobile money', r.status, r.byName, r.decidedBy, when_(r.decidedAt), r.note, r.paidBy, when_(r.paidAt), r.receipt ? 'Yes' : (r.status === 'Paid' ? 'MISSING' : ''), fileLink_(r.quoteFile), fileLink_(r.receiptFile), r.id, r.payOn || '', r.revised ? r.revised + (r.revised === 1 ? ' time' : ' times') : '', r.food ? r.food.people : '', r.food ? r.food.qty + ' ' + r.food.unit : '', r.food ? r.food.price : '', r.food ? r.food.stock + ' ' + r.food.unit : '', r.spent != null ? r.spent : '', finPaid(r), r.purpose || '', r.planned === 'yes' ? 'Yes' : r.planned === 'no' ? 'No' : r.planned === 'unsure' ? 'Unsure' : '']]);
   }
 }
 function comments_(list) {

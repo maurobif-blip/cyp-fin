@@ -153,6 +153,7 @@ function finPaid(r) {
   return Math.round(s * 100) / 100;
 }
 function finMonthlySecs(s) { return s.monthly || ['SCH', 'FAM']; }
+function finPlanned(x) { return ['yes', 'no', 'unsure'].indexOf(String(x)) >= 0 ? String(x) : ''; }
 function finText(x, max) { return String(x == null ? '' : x).replace(/\s+/g, ' ').trim().slice(0, max || 200); }
 
 /* ---- one change. Returns {ok:true} or {ok:false, error:'...'}; "info" collects what the store must write ---- */
@@ -172,6 +173,7 @@ function finApply(db, u, op, nowIso, store, info) {
   }
 
   if (t === 'req_new') {
+    /* why the money is needed and whether it was planned: asked on the form of 24/11 (beta 1.5); both optional here */
     if (!finCanAskFor(u, d.section)) return fail('section');
     if (!d.id || finFind(db.requests, d.id)) return fail('id');
     var what = finText(d.what, 160), amount = Number(d.amount), bundle = null, month = '', ppl = 0, toRev = false;
@@ -207,7 +209,7 @@ function finApply(db, u, op, nowIso, store, info) {
     db.seq++;
     r = { id: String(d.id), no: 'R' + ('000' + db.seq).slice(-4), section: String(d.section), what: what, amount: Math.round(amount * 100) / 100,
       line: String(d.line || ''), lineName: finText(d.lineName, 120), prio: d.prio, needed: d.needed, pay: d.pay === 'cash' ? 'cash' : 'bank',
-      created: created, received: nowIso, notice: notice, emergency: emergency, reason: emergency ? finText(d.reason, 60) : '', why: emergency ? finText(d.why, 200) : '',
+      created: created, received: nowIso, notice: notice, emergency: emergency, reason: emergency ? finText(d.reason, 60) : '', why: emergency ? finText(d.why, 200) : '', purpose: finText(d.purpose, 300), planned: finPlanned(d.planned),
       by: u.id, byName: u.name, byRole: u.role, status: toRev ? 'Review' : 'Waiting', selfRev: !toRev && finReviewOn(s) && finReviews(u, d.section) && !planKey, decidedBy: '', decidedAt: '', note: '', week: '', paidBy: '', paidAt: '',
       receipt: false, receiptBy: '', receiptAt: '', quoteFile: saveFile(d.photo, 'quotation-' + d.id), receiptFile: '', deadline: d.deadline ? String(d.deadline) : '', plan: planKey, month: month, people: ppl, items: bundle ? bundle.items : null, food: food || null, parts: bundle ? null : finParts(d.parts, Math.round(amount * 100) / 100) };
     db.requests.push(r);
@@ -467,6 +469,8 @@ function finApply(db, u, op, nowIso, store, info) {
     r.food = food2 || null; r.parts = bundle2 ? null : finParts(d.parts, Math.round(amount2 * 100) / 100);
     r.what = what2; r.amount = Math.round(amount2 * 100) / 100; r.line = String(d.line || ''); r.lineName = finText(d.lineName, 120); r.prio = d.prio; r.needed = d.needed;
     r.pay = d.pay === 'cash' ? 'cash' : 'bank'; r.notice = notice2; r.emergency = em2; r.reason = em2 ? reason2 : ''; r.why = em2 ? why2 : '';
+    if (d.purpose != null) r.purpose = finText(d.purpose, 300);
+    if (d.planned != null) r.planned = finPlanned(d.planned);
     var q2 = saveFile(d.photo, 'quotation-' + r.id + '-' + ((r.revised || 0) + 1)); if (q2) r.quoteFile = q2;
     r.status = toRev2 ? 'Review' : 'Waiting'; r.revised = (r.revised || 0) + 1; r.revisedAt = nowIso; r.askedNote = r.note; r.askedBy = r.noteBy === 'review' ? r.decidedBy : ''; r.decidedBy = ''; r.decidedAt = ''; r.week = '';
     if (toRev2) { r.revBy = ''; r.revAt = ''; r.revNote = ''; }
@@ -633,4 +637,4 @@ function finHandle(req, store) {
   return out;
 }
 
-if (typeof module !== 'undefined') module.exports = { finPart: finPart, finRevParts: finRevParts, finReviews: finReviews, finPaid: finPaid, finHandle: finHandle, finApply: finApply, finNewDb: finNewDb, finWorkDays: finWorkDays, finAskBy: finAskBy, finWeekKey: finWeekKey, finToday: finToday, finAddDays: finAddDays, finAddMonth: finAddMonth };
+if (typeof module !== 'undefined') module.exports = { finPlanned: finPlanned, finPart: finPart, finRevParts: finRevParts, finReviews: finReviews, finPaid: finPaid, finHandle: finHandle, finApply: finApply, finNewDb: finNewDb, finWorkDays: finWorkDays, finAskBy: finAskBy, finWeekKey: finWeekKey, finToday: finToday, finAddDays: finAddDays, finAddMonth: finAddMonth };
