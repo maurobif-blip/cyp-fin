@@ -132,7 +132,7 @@ img.photo{max-width:100%;border:1px solid var(--line)}
 <script src="core.js"></script>
 <script>
 'use strict';
-var FIN_VERSION = 'beta 1.1';
+var FIN_VERSION = 'beta 1.2';
 
 /* ================= small tools ================= */
 function esc(s) { return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]; }); }
@@ -746,7 +746,7 @@ function tabCounts() {
 }
 function badge(n) { return n ? '<span class="cyp-badge" aria-hidden="true">' + (n > 99 ? '99+' : n) + '</span>' : ''; }
 function head() {
-  var sw = syncWord(), h = '<header class="cyp-appbar cyp-appbar--fixed"><span class="cyp-appbar__plate"><img src="ds/cyp-fin.svg" alt="CYP FIN"></span><span class="cyp-appbar__where" id="bar-where">' + esc(pageName()) + '</span><span class="cyp-appbar__sync" id="sync-state">' + di(sw[0]) + sw[1] + '</span></header>';
+  var sw = syncWord(), h = '<header class="cyp-appbar cyp-appbar--fixed"><span class="cyp-appbar__plate"><img src="ds/cyp-fin.svg" alt="CYP FIN"></span><span class="cyp-appbar__where" id="bar-where">' + esc(pageName()) + '</span>' + (comCan() ? '<button type="button" class="cyp-appbar__action" id="bar-comment" aria-label="Comment" data-a="comStart">' + di('message-square') + '</button>' : '') + '<span class="cyp-appbar__sync" id="sync-state">' + di(sw[0]) + sw[1] + '</span></header>';
   if (S.me && S.ui.screen === 'main') { var n = tabCounts(); h += '<div class="cyp-nav" role="navigation" aria-label="Pages">' + tabsFor().map(function (t) { return '<a class="label-caps" href="#" data-a="tab" data-id="' + t[0] + '"' + (S.ui.tab === t[0] ? ' aria-current="page"' : '') + '>' + t[1] + badge(n[t[0]]) + '</a>'; }).join('') + '</div>'; }
   if (S.cfg && S.cfg.mode === 'demo') h += '<div class="cyp-banner cyp-banner--warn demo">' + di('info') + 'Demo: invented data. It stays on this phone.' + (S.shared ? ' Only your comments are sent.' : '') + '</div>';
   /* a database kept on this device only: people, requests and comments written here reach nobody else */
@@ -1575,7 +1575,7 @@ function render() {
   }
   if (S.ui.viewer) h += '<div class="viewer" role="dialog" aria-modal="true" aria-label="Photo"><div class="vbar"><button type="button" class="cyp-btn btn" data-a="viewZoom" data-id="-1"' + (S.ui.viewer.zoom <= 1 ? ' disabled' : '') + '>Smaller</button><button type="button" class="cyp-btn btn" data-a="viewZoom" data-id="1"' + (S.ui.viewer.zoom >= 5 ? ' disabled' : '') + '>Bigger</button><button type="button" class="cyp-btn btn" data-a="viewClose">Close</button></div><div class="vscroll"><img id="viewer-img" alt="Photo" src="' + S.ui.viewer.src + '" style="width:' + (S.ui.viewer.zoom * 100) + '%"></div></div>';
   h += comButton();
-  app.className = S.picking ? 'picking' : '';
+  app.className = S.picking ? 'picking' : ''; document.body.classList.toggle('cyp-commenting', !!S.picking);
   app.innerHTML = h;
   var mn = app.querySelector('main'); if (mn) { mn.classList.add('cyp-content'); if (app.querySelector('nav.cyp-tabbar')) mn.classList.add('cyp-has-tabbar'); if (S.ui.enter) mn.classList.add('cyp-enter'); if (isWide() && (S.ui.tab === 'all' || S.ui.tab === 'report')) mn.classList.add('cyp-content--wide'); }
   S.ui.enter = false; S.ui.rise = false; countUp();

@@ -123,9 +123,12 @@ img, svg { display: block; max-width: 100%; }
 .cyp-appbar { min-height: var(--bar-height); background: var(--navy); color: var(--on-dark); display: flex; align-items: center; gap: var(--space-3); padding: var(--space-1) var(--space-4); }
 .cyp-appbar__plate { background: var(--surface); border-radius: var(--radius-control); padding: 6px var(--space-2); flex: none; }
 .cyp-appbar__plate img { height: 28px; width: auto; }
-.cyp-appbar__where { flex: 1; min-width: 0; font: var(--type-button) var(--font-display); }
-.cyp-appbar__sync { display: inline-flex; align-items: center; gap: var(--space-1); font: var(--type-small-strong) var(--font-text); }
+.cyp-appbar__where { flex: 1; min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; font: var(--type-button) var(--font-display); }
+.cyp-appbar__sync { flex: none; display: inline-flex; align-items: center; gap: var(--space-1); font: var(--type-small-strong) var(--font-text); }
 .cyp-appbar__sync .cyp-icon { width: 20px; height: 20px; }
+.cyp-appbar__action { flex: none; width: var(--touch-min); height: var(--touch-min); display: grid; place-items: center; margin: 0 calc(-1 * var(--space-2)); padding: 0; border: 0; border-radius: var(--radius-control); background: transparent; color: var(--on-dark); cursor: pointer; }
+.cyp-appbar__action .cyp-icon { width: 24px; height: 24px; }
+.cyp-commenting .cyp-appbar__action { visibility: hidden; }
 .cyp-nav { display: flex; gap: var(--space-1); background: var(--blue); padding: 0 var(--space-4); }
 .cyp-nav a { min-height: var(--touch-min); display: inline-flex; align-items: center; padding: 0 var(--space-3); color: var(--on-dark); text-decoration: none; text-transform: uppercase; border-bottom: var(--rule-heading) solid transparent; }
 .cyp-nav a[aria-current] { border-bottom-color: var(--yellow); }
@@ -382,7 +385,7 @@ img, svg { display: block; max-width: 100%; }
   @page { size: A4; margin: 0; }
   .cyp-page, .cyp-cover, .cyp-chapter, .cyp-doc { break-after: page; }
   /* app chrome never prints */
-  .cyp-appbar, .cyp-nav, .cyp-tabbar, .cyp-banner, .cyp-pager, .cyp-btn, .cyp-no-print { display: none !important; }
+  .cyp-appbar, .cyp-appbar__action, .cyp-nav, .cyp-tabbar, .cyp-banner, .cyp-pager, .cyp-btn, .cyp-no-print { display: none !important; }
   /* one form on paper: put cyp-printing on <body> before window.print() and take it off after */
   .cyp-printing * { visibility: hidden; }
   .cyp-printing .cyp-doc, .cyp-printing .cyp-doc * { visibility: visible; }
