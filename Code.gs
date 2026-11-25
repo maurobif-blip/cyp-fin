@@ -132,6 +132,17 @@ function finCommentRec(d, nowIso, by, byName, demo) {
     version: finText(d.version, 20), phone: !!d.phone, done: false, doneBy: '', doneAt: '' };
 }
 /* the lines of a monthly request: budget line, name, amount */
+/* the quantities and unit costs the reviewer recommends, one for each item of the request; the request keeps its own */
+function finRecItems(list, items) {
+  if (!list || !items || list.length !== items.length) return null;
+  var out = [];
+  for (var i = 0; i < list.length; i++) {
+    var q = Math.round(Number(list[i].qty) * 1000) / 1000, p = Math.round(Number(list[i].price) * 100) / 100;
+    if (!(q >= 0) || !(p >= 0) || q > 1000000 || p > 100000000 || isNaN(q) || isNaN(p)) return null;
+    out.push({ qty: q, price: p, amount: Math.round(q * p * 100) / 100 });
+  }
+  return out;
+}
 function finItems(list, rich, open) {
   if (!list || !list.length || list.length > (rich ? 12 : 80)) return null;
   var out = [], sum = 0;
@@ -195,8 +206,9 @@ function finApply(db, u, op, nowIso, store, info) {
   var d = op.d || {}, t = op.t, today = finToday(nowIso), s = db.settings, r, x;
   function bump(rec) { db.rev++; rec.rev = db.rev; }
   function fail(e) { return { ok: false, error: e }; }
-  function touched(rec, what, detail) {
+  function touched(rec, what, detail, quiet) {
     bump(rec);
+    if (!quiet) { if (!rec.trail) rec.trail = []; rec.trail.push({ at: nowIso, by: u.name, what: what, detail: finText(detail, 200) }); if (rec.trail.length > 80) rec.trail.splice(0, rec.trail.length - 80); }
     if (info) { if (info.requests.indexOf(rec) < 0) info.requests.push(rec); info.audit.push({ time: nowIso, user: u.name, action: what, no: rec.no || '', detail: detail || '' }); }
   }
   function audit(what, detail) { if (info) info.audit.push({ time: nowIso, user: u.name, action: what, no: '', detail: detail || '' }); }
@@ -452,6 +464,17 @@ function finApply(db, u, op, nowIso, store, info) {
   }
 
   /* everything below changes one request */
+  /* the reviewer groups requests that are one need: each request keeps its record and amounts */
+  if (t === 'req_group') {
+    var gl = (d.ids || []).map(function (id) { return finFind(db.requests, id); });
+    if (!gl.length || gl.some(function (x) { return !x; })) return fail('fields');
+    if (gl.some(function (x) { return !finReviews(u, x.section) || ['Review', 'Waiting', 'Next week'].indexOf(x.status) < 0; })) return fail('role');
+    var gn = d.name == null ? '' : finText(d.name, 60);
+    if (d.name != null && (!gn || gl.length < 2)) return fail('fields');
+    var gid = gn ? 'g' + gl[0].id : '';
+    gl.forEach(function (x) { if (gn) x.grp = { id: gid, name: gn }; else delete x.grp; touched(x, gn ? 'Grouped as one need' : 'Taken out of the group', gn); });
+    return { ok: true };
+  }
   r = finFind(db.requests, d.id);
   if (!r) return fail('id');
   if (t === 'req_cancel') {
@@ -464,15 +487,43 @@ function finApply(db, u, op, nowIso, store, info) {
   /* the reviewer checks a request, gives each item its budget line (or says it is not in the budget) and sends it to the Director; or sends it back */
   if (t === 'req_review') {
     if (!finReviews(u, r.section) || r.by === u.id) return fail('role');
+    /* a request already with the Director comes back to the review, before the Director decides */
+    if (d.reopen) {
+      if ((r.status !== 'Waiting' && r.status !== 'Next week') || !r.items || !r.revAt) return fail('status');
+      r.rvDraft = { lines: r.items.map(function (it) { return it.line || ''; }), prio: r.prio || '', nature: r.nature || '', recommend: r.revRec || '', just: r.revJust || '', note: r.revNote || '', items: r.rvItems || null };
+      r.status = 'Review'; r.note = ''; r.noteBy = ''; r.decidedBy = ''; r.decidedAt = ''; r.week = ''; delete r.revLater;
+      touched(r, 'Taken back by the reviewer', finText(d.note, 200));
+      return { ok: true };
+    }
     if (r.status !== 'Review' || !r.items) return fail('status');
+    if (d.draft) {
+      var dr0 = d.draft;
+      r.rvDraft = { lines: (dr0.lines || []).slice(0, r.items.length).map(function (x) { return finText(x, 20); }), prio: ['P1', 'P2', 'P3'].indexOf(dr0.prio) >= 0 ? dr0.prio : '', nature: dr0.nature === 'Exceptional' || dr0.nature === 'Normal' ? dr0.nature : '', recommend: dr0.recommend === 'no' || dr0.recommend === 'yes' ? dr0.recommend : '', just: finText(dr0.just, 300), note: finText(dr0.note, 200), items: finRecItems(dr0.items, r.items) || null, by: u.name, at: nowIso };
+      touched(r, 'Review draft', '', true);
+      return { ok: true };
+    }
+    if (d.later) {
+      if (!finIsDate(d.later) || d.later <= today) return fail('date');
+      r.revLater = d.later; r.revLaterNote = finText(d.note, 200); r.revLaterBy = u.name;
+      touched(r, 'Postponed by the reviewer', 'to ' + d.later + (r.revLaterNote ? ': ' + r.revLaterNote : ''));
+      return { ok: true };
+    }
+    if (d.now) { if (!r.revLater) return fail('status'); delete r.revLater; touched(r, 'Back to the review', ''); return { ok: true }; }
     if (d.back) {
       if (!finText(d.note)) return fail('note');
-      r.status = 'To revise'; r.note = finText(d.note, 200); r.noteBy = 'review'; r.decidedBy = u.name; r.decidedAt = nowIso;
+      r.status = 'To revise'; r.note = finText(d.note, 200); r.noteBy = 'review'; r.decidedBy = u.name; r.decidedAt = nowIso; delete r.revLater;
       touched(r, 'Sent back by the reviewer', r.note);
       return { ok: true };
     }
     var ls = d.lines || [], rec = d.rec === '' || d.rec == null ? null : Math.round(Number(d.rec) * 100) / 100;
+    var rvi = d.items ? finRecItems(d.items, r.items) : null;
+    if (d.items && !rvi) return fail('rec');
+    if (rvi) { rec = Math.round(rvi.reduce(function (n, x) { return n + x.amount; }, 0) * 100) / 100; if (Math.abs(rec - r.amount) < 0.005) { rvi = null; rec = null; } }
     if (rec !== null && !(rec > 0 && rec <= r.amount)) return fail('rec');
+    var nat = d.nature === 'Exceptional' || d.nature === 'Normal' ? d.nature : '', recm = d.recommend === 'no' ? 'no' : 'yes', just = finText(d.just, 300);
+    /* a justification for: exceptional, not recommended, amount lowered, outside the budget or over a budget line */
+    var extra = false; for (var lx = 0; lx < ls.length; lx++) if (ls[lx] && ls[lx].line === 'none') extra = true;
+    if (!just && (nat === 'Exceptional' || recm === 'no' || (rec !== null && rec < r.amount - 0.004) || extra || d.over)) return fail('just');
     if (['P1', 'P2', 'P3'].indexOf(d.prio) < 0 && !r.prio) return fail('prio');
     if (ls.length !== r.items.length) return fail('line');
     for (var li = 0; li < ls.length; li++) if (!ls[li] || !ls[li].line) return fail('line');
@@ -480,9 +531,11 @@ function finApply(db, u, op, nowIso, store, info) {
     var rl = {}; finItemLine({ items: r.items }, rl); r.line = rl.line; r.lineName = rl.lineName;
     if (['P1', 'P2', 'P3'].indexOf(d.prio) >= 0) r.prio = d.prio;
     if (rec !== null && rec < r.amount - 0.004) r.rec = rec; else delete r.rec;
+    if (rvi && r.rec != null) r.rvItems = rvi; else delete r.rvItems;
+    if (nat) r.nature = nat; r.revRec = recm; r.revJust = just; delete r.rvDraft; delete r.revLater;
     r.revBy = u.name; r.revAt = nowIso; r.revNote = finText(d.note, 200);
     r.status = 'Waiting'; r.note = ''; r.noteBy = ''; r.decidedBy = ''; r.decidedAt = '';
-    touched(r, 'Reviewed', r.lineName + (r.rec != null ? ', recommended K' + r.rec : '') + (r.revNote ? ': ' + r.revNote : ''));
+    touched(r, 'Reviewed', r.lineName + (r.rec != null ? ', recommended K' + r.rec : '') + (recm === 'no' ? ', not recommended' : '') + (nat ? ', ' + nat : '') + (just ? '. Why: ' + just : '') + (r.revNote ? '. ' + r.revNote : ''));
     return { ok: true };
   }
   if (t === 'decide') {
@@ -526,6 +579,8 @@ function finApply(db, u, op, nowIso, store, info) {
     var notice2 = finWorkDays(r.created, d.needed), em2 = notice2 < s.noticeDays;
     var reason2 = finText(d.reason, 60) || r.reason, why2 = finText(d.why, 200) || r.why;
     if (em2 && (!reason2 || !why2)) return fail('reason');
+    if (!r.versions) r.versions = [];
+    r.versions.push({ at: r.revisedAt || r.created, what: r.what, amount: r.amount, items: r.items ? JSON.parse(JSON.stringify(r.items)) : null, purpose: r.purpose || '', needed: r.needed, quoteFile: r.quoteFile || '' }); if (r.versions.length > 10) r.versions.splice(0, r.versions.length - 10);
     r.items = bundle2 ? bundle2.items : null; r.people = ppl2;
     r.food = food2 || null; r.parts = bundle2 ? null : finParts(d.parts, Math.round(amount2 * 100) / 100);
     r.what = what2; r.amount = Math.round(amount2 * 100) / 100; r.line = String(d.line || ''); r.lineName = finText(d.lineName, 120); r.prio = d.prio || ''; r.needed = d.needed;
@@ -534,7 +589,7 @@ function finApply(db, u, op, nowIso, store, info) {
     if (d.planned != null) r.planned = finPlanned(d.planned);
     var q2 = saveFile(d.photo, 'quotation-' + r.id + '-' + ((r.revised || 0) + 1)); if (q2) r.quoteFile = q2;
     r.status = toRev2 ? 'Review' : 'Waiting'; r.revised = (r.revised || 0) + 1; r.revisedAt = nowIso; r.askedNote = r.note; r.askedBy = r.noteBy === 'review' ? r.decidedBy : ''; r.decidedBy = ''; r.decidedAt = ''; r.week = '';
-    if (toRev2) { r.revBy = ''; r.revAt = ''; r.revNote = ''; delete r.rec; }
+    if (toRev2) { r.revBy = ''; r.revAt = ''; r.revNote = ''; delete r.rec; delete r.rvItems; delete r.revRec; delete r.revJust; }
     touched(r, 'Sent again after revision', what2 + ' K' + r.amount);
     return { ok: true };
   }
@@ -694,7 +749,7 @@ function finHandle(req, store) {
   for (i = 0; i < db.deadlines.length; i++) if (db.deadlines[i].rev > since && (finSeesAll(u) || finHasSection(u, db.deadlines[i].section))) out.deadlines.push(db.deadlines[i]);
   /* the administrator reads all the comments; the others get back their own */
   for (i = 0; i < db.comments.length; i++) if (db.comments[i].rev > since && (u.admin || db.comments[i].by === u.id)) out.comments.push(db.comments[i]);
-  if ((db.settings.rev || 0) > since || full) out.settings = finPubSettings(db.settings, finSeesAll(u));
+  if ((db.settings.rev || 0) > since || full) out.settings = finPubSettings(db.settings, finSeesAll(u) || finRevParts(u).indexOf('S') >= 0);
   return out;
 }
 
