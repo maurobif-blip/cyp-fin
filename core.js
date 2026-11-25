@@ -19,21 +19,22 @@ function finEdu(code) { return FIN_EDU.indexOf(String(code)) >= 0; }
 function finFinal(u, code) { return finRevParts(u).indexOf(finPart(code)) >= 0; }
 /* reviews the department at one of the two steps */
 function finReviews(u, code) { return finFinal(u, code) || (finRevParts(u).indexOf('E') >= 0 && finEdu(code)); }
-/* can review this request now: the first step is the education review, the second the reviewer of the part */
-function finCanRev(u, r) { if (r.by === u.id) return false; if (r.stage === 'E') return finRevParts(u).indexOf('E') >= 0 && finEdu(r.section); if (r.stage === 'S' || r.stage === 'C') return finRevParts(u).indexOf(r.stage) >= 0; return finFinal(u, r.section); }
-/* nobody reviews his own request: a reviewer asking for a department he sends to the Director goes to the reviewer of the other part
-   (Mulenga's administrative requests to Chiwele, 25/11). Returns that part, or '' when nobody else reviews it */
-function finCross(users, u, code) {
-  if (!finFinal(u, code)) return '';
-  var other = finPart(code) === 'S' ? 'C' : 'S';
-  for (var i = 0; i < users.length; i++) { var x = users[i]; if (x.active !== false && x.id !== u.id && finRevParts(x).indexOf(other) >= 0) return other; }
-  return '';
-}
-/* the first step is needed when the department is an education one, someone reviews education, and who asks is not that person */
-function finStageFor(db, r, u) {
-  if (!finEdu(r.section) || finRevParts(u).indexOf('E') >= 0) return '';
-  for (var i = 0; i < db.users.length; i++) { var x = db.users[i]; if (x.active !== false && x.id !== r.by && finRevParts(x).indexOf('E') >= 0) return 'E'; }
-  return '';
+/* can review this request now: the stage names the part whose reviewer has it (E education, S social, C commercial);
+   requests saved before the stages go to the reviewer of the department's part */
+function finCanRev(u, r) { if (r.by === u.id) return false; if (r.stage) return finRevParts(u).indexOf(r.stage) >= 0; return finFinal(u, r.section); }
+/* who reviews a new request (Mauro, 25/11). Nobody reviews his own request: Mulenga's requests go to Chiwele, Chiwele's to
+   Mulenga, the education reviewer's to the social reviewer. A requester goes to the reviewer set on him (Social, Commercial,
+   Education), or else by department: education departments to the education reviewer, the others to their part.
+   Education is reviewed in two steps: the education reviewer, then the social reviewer. '' = nobody: the old rule */
+function finRoute(users, u, code) {
+  var p = finRevParts(u), has = function (part) { for (var i = 0; i < users.length; i++) { var x = users[i]; if (x.active !== false && x.id !== u.id && finRevParts(x).indexOf(part) >= 0) return true; } return false; };
+  var s = p.indexOf('S') >= 0, c = p.indexOf('C') >= 0;
+  if (s && c) return '';
+  if (s || c) return has(s ? 'C' : 'S') ? (s ? 'C' : 'S') : '';
+  if (p.indexOf('E') >= 0) return has('S') ? 'S' : '';
+  var w = ['S', 'C', 'E'].indexOf(u.revBy) >= 0 ? u.revBy : finEdu(code) ? 'E' : finPart(code);
+  if (w === 'E' && !has('E')) w = 'S';
+  return has(w) ? w : '';
 }
 function finOpenLines(items) { for (var i = 0; i < (items || []).length; i++) if (!items[i].line) return true; return false; }
 
@@ -96,12 +97,12 @@ function finLower(r, a) {
   r.amount = a;
 }
 function finPublicUser(u) {
-  return { id: u.id, name: u.name, title: u.title || '', role: u.role, sections: u.sections || [], reviews: u.reviews || [], admin: !!u.admin, active: u.active !== false, salt: u.salt, rev: u.rev || 0 };
+  return { id: u.id, name: u.name, title: u.title || '', role: u.role, sections: u.sections || [], reviews: u.reviews || [], revBy: u.revBy || '', deleted: !!u.deleted, admin: !!u.admin, active: u.active !== false, salt: u.salt, rev: u.rev || 0 };
 }
 function finFind(list, id) { for (var i = 0; i < list.length; i++) if (list[i].id === id) return list[i]; return null; }
 function finHasSection(u, code) { return (u.sections || []).indexOf(code) >= 0; }
 function finSeesAll(u) { return u.role === 'director' || u.role === 'accountant' || u.role === 'viewer' || !!u.admin; }
-function finSeesRequest(u, r) { return finSeesAll(u) || finHasSection(u, r.section) || r.by === u.id || finReviews(u, r.section); }
+function finSeesRequest(u, r) { return finSeesAll(u) || finHasSection(u, r.section) || r.by === u.id || r.behalfId === u.id || finReviews(u, r.section); }
 /* a Section head with no department set on the person asks for any department and says which one on the request */
 function finCanAskFor(u, code) { return finHasSection(u, code) || u.role === 'accountant' || (u.role === 'head' && !(u.sections || []).length); }
 /* the dates of the agenda are kept by the Accountant, the Director and the administrator; a section head sees them and asks */
@@ -130,7 +131,22 @@ var FIN_ANSWERED = [
   ['answered in beta 1.6', 'Christoph', 'The department should be here', '2026-11-24T07:00:00.000Z', '2026-11-24T13:00:00.000Z'],
   ['answered in beta 1.6', 'Ana', 'Here the roles should be', '2026-11-24T07:00:00.000Z', '2026-11-24T13:00:00.000Z'],
   ['answered in beta 1.6', 'Ana', 'Pay and other should be added after', '2026-11-24T07:00:00.000Z', '2026-11-24T13:00:00.000Z'],
-  ['answered in beta 1.6', 'Madame Chisha', 'Say: Uplaod', '2026-11-24T07:00:00.000Z', '2026-11-24T13:00:00.000Z']
+  ['answered in beta 1.6', 'Madame Chisha', 'Say: Uplaod', '2026-11-24T07:00:00.000Z', '2026-11-24T13:00:00.000Z'],
+  ['answered in beta 1.10', 'Mauro Bifulco', 'In the reviwers there are three roles', '2026-11-24T00:00:00.000Z', '2026-11-26T00:00:00.000Z'],
+  ['answered in beta 1.10', 'Mauro Bifulco', 'In the administration of users', '2026-11-24T00:00:00.000Z', '2026-11-26T00:00:00.000Z'],
+  ['answered in beta 1.10', 'Mauro Bifulco', 'take out the option', '2026-11-24T00:00:00.000Z', '2026-11-26T00:00:00.000Z'],
+  ['answered in beta 1.10', 'Mauro Bifulco', 'For each user can plus', '2026-11-24T00:00:00.000Z', '2026-11-26T00:00:00.000Z'],
+  ['answered in beta 1.10', 'Mulenga', 'the sending to the director', '2026-11-24T00:00:00.000Z', '2026-11-26T00:00:00.000Z'],
+  ['answered in beta 1.10', 'Mulenga', 'Add the option of', '2026-11-24T00:00:00.000Z', '2026-11-26T00:00:00.000Z'],
+  ['answered in beta 1.10', 'Mulenga', 'this is asked directly by mulenga', '2026-11-24T00:00:00.000Z', '2026-11-26T00:00:00.000Z'],
+  ['answered in beta 1.10', 'Mulenga', 'Add a category: nature', '2026-11-24T00:00:00.000Z', '2026-11-26T00:00:00.000Z'],
+  ['answered in beta 1.10', 'Stefano Maradini', 'Sould be expected in euros', '2026-11-24T00:00:00.000Z', '2026-11-26T00:00:00.000Z'],
+  ['answered in beta 1.10', 'Christoph', 'It’s quite slow', '2026-11-24T00:00:00.000Z', '2026-11-26T00:00:00.000Z'],
+  ['answered in beta 1.10', 'Christoph', 'There is a bug. I have to click', '2026-11-24T00:00:00.000Z', '2026-11-26T00:00:00.000Z'],
+  ['answered in beta 1.10', 'Christoph', 'In all the screens make an option', '2026-11-24T00:00:00.000Z', '2026-11-26T00:00:00.000Z'],
+  ['answered in beta 1.10', 'Christoph', 'The box to enter the date', '2026-11-24T00:00:00.000Z', '2026-11-26T00:00:00.000Z'],
+  ['answered in beta 1.10', 'Christoph', 'Take out the budget breakdown', '2026-11-24T00:00:00.000Z', '2026-11-26T00:00:00.000Z'],
+  ['answered in beta 1.10', 'Ana', 'Can you put the', '2026-11-24T00:00:00.000Z', '2026-11-26T00:00:00.000Z']
 ];
 function finAnswer(db, nowIso) {
   var out = [], cs = db.comments || [], i, j;
@@ -250,7 +266,7 @@ function finApply(db, u, op, nowIso, store, info) {
       /* several items in one request, each on its budget line; without the lines the request goes to the reviewer */
       bundle = finItems(d.items, true, finReviewOn(s)); if (!bundle) return fail('items');
       toRev = finOpenLines(bundle.items);
-      if (toRev && finFinal(u, d.section) && !finCross(db.users, u, d.section)) return fail('line');
+      if (toRev && finFinal(u, d.section) && !finRoute(db.users, u, d.section)) return fail('line');
       amount = bundle.sum; if (toRev) { d.line = ''; d.lineName = ''; } else finItemLine(bundle, d);
       ppl = finPeople(d.people); if (ppl < 0) return fail('food');
     } else if (d.items) {
@@ -282,7 +298,9 @@ function finApply(db, u, op, nowIso, store, info) {
       created: created, received: nowIso, notice: notice, emergency: emergency, reason: emergency ? finText(d.reason, 60) : '', why: emergency ? finText(d.why, 200) : '', purpose: finText(d.purpose, 300), planned: finPlanned(d.planned),
       by: u.id, byName: u.name, byRole: u.role, status: toRev ? 'Review' : 'Waiting', selfRev: !toRev && finReviewOn(s) && finFinal(u, d.section) && !planKey, decidedBy: '', decidedAt: '', note: '', week: '', paidBy: '', paidAt: '',
       receipt: false, receiptBy: '', receiptAt: '', quoteFile: saveFile(d.photo, 'quotation-' + d.id), receiptFile: '', deadline: d.deadline ? String(d.deadline) : '', plan: planKey, month: month, people: ppl, items: bundle ? bundle.items : null, food: food || null, parts: bundle ? null : finParts(d.parts, Math.round(amount * 100) / 100) };
-    if (toRev) { var st0 = finCross(db.users, u, r.section) || finStageFor(db, r, u); if (st0) r.stage = st0; }
+    if (toRev) { var st0 = finRoute(db.users, u, r.section); if (st0) r.stage = st0; }
+    /* a reviewer asks on behalf of a section head (Mulenga, 25/11): the head sees it as his; the review follows who typed it */
+    if (d.behalf && u.role === 'accountant') { var bh = finFind(db.users, String(d.behalf)); if (bh && bh.role === 'head' && bh.active !== false) { r.behalf = bh.name; r.behalfId = bh.id; } }
     db.requests.push(r);
     touched(r, toRev ? 'New request, to review' : 'New request', what + ' K' + r.amount + (emergency ? ' EMERGENCY' : ''));
     if (r.deadline) {
@@ -439,14 +457,15 @@ function finApply(db, u, op, nowIso, store, info) {
     if (!d.id || !nm || FIN_ROLES.indexOf(d.role) < 0) return fail('fields');
     x = finFind(db.users, d.id);
     if (!x) { if (!d.salt || !d.cred) return fail('pin'); x = { id: String(d.id), fails: 0, lockUntil: '' }; db.users.push(x); }
-    var wasAdmin = !!x.admin && x.active !== false, willAdmin = !!d.admin && d.active !== false;
+    if (d.deleted && x.id === u.id) return fail('self');
+    var wasAdmin = !!x.admin && x.active !== false, willAdmin = !!d.admin && d.active !== false && !d.deleted;
     if (wasAdmin && !willAdmin) {
       var others = 0; for (var i = 0; i < db.users.length; i++) if (db.users[i] !== x && db.users[i].admin && db.users[i].active !== false) others++;
       if (!others) return fail('last_admin');
     }
-    x.name = nm; x.title = finText(d.title, 40); x.role = d.role; x.sections = (d.sections || []).map(String); x.reviews = (d.reviews || []).map(String).filter(function (p) { return p === 'S' || p === 'C' || p === 'E'; }); x.admin = !!d.admin; x.active = d.active !== false;
+    x.name = nm; x.title = finText(d.title, 40); x.role = d.role; x.sections = (d.sections || []).map(String); x.reviews = (d.reviews || []).map(String).filter(function (p) { return p === 'S' || p === 'C' || p === 'E'; }); x.admin = !!d.admin; x.revBy = x.role === 'head' && ['S', 'C', 'E'].indexOf(d.revBy) >= 0 ? d.revBy : ''; x.active = d.active !== false && !d.deleted; if (d.deleted) x.deleted = true; else delete x.deleted;
     if (d.salt && d.cred) { x.salt = String(d.salt); x.cred = String(d.cred); x.fails = 0; x.lockUntil = ''; }
-    bump(x); audit('Person saved', nm + ' (' + x.role + ')');
+    bump(x); audit(d.deleted ? 'Person deleted' : 'Person saved', nm + ' (' + x.role + ')');
     return { ok: true };
   }
   if (t === 'pin') {
@@ -492,7 +511,7 @@ function finApply(db, u, op, nowIso, store, info) {
   if (t === 'req_group') {
     var gl = (d.ids || []).map(function (id) { return finFind(db.requests, id); });
     if (!gl.length || gl.some(function (x) { return !x; })) return fail('fields');
-    if (gl.some(function (x) { return !finReviews(u, x.section) || ['Review', 'Waiting', 'Next week'].indexOf(x.status) < 0; })) return fail('role');
+    if (gl.some(function (x) { return !(x.stage ? finRevParts(u).indexOf(x.stage) >= 0 : finReviews(u, x.section)) || ['Review', 'Waiting', 'Next week'].indexOf(x.status) < 0; })) return fail('role');
     var gn = d.name == null ? '' : finText(d.name, 60);
     if (d.name != null && (!gn || gl.length < 2)) return fail('fields');
     var gid = gn ? 'g' + gl[0].id : '';
@@ -510,10 +529,10 @@ function finApply(db, u, op, nowIso, store, info) {
   }
   /* the reviewer checks a request, gives each item its budget line (or says it is not in the budget) and sends it to the Director; or sends it back */
   if (t === 'req_review') {
-    if (r.by === u.id || (!finReviews(u, r.section) && !((r.stage === 'S' || r.stage === 'C') && finRevParts(u).indexOf(r.stage) >= 0))) return fail('role');
+    if (r.by === u.id || (!finReviews(u, r.section) && !(r.stage && finRevParts(u).indexOf(r.stage) >= 0))) return fail('role');
     /* a request already with the Director comes back to the review, before the Director decides: only the reviewer who sent it there */
     if (d.reopen) {
-      if (r.stage === 'S' || r.stage === 'C' ? finRevParts(u).indexOf(r.stage) < 0 : !finFinal(u, r.section)) return fail('role');
+      if (r.stage ? finRevParts(u).indexOf(r.stage) < 0 : !finFinal(u, r.section)) return fail('role');
       if ((r.status !== 'Waiting' && r.status !== 'Next week') || !r.items || !r.revAt) return fail('status');
       r.rvDraft = { lines: r.items.map(function (it) { return it.line || ''; }), prio: r.prio || '', nature: r.nature || '', recommend: r.revRec || '', just: r.revJust || '', note: r.revNote || '', items: r.rvItems || null };
       r.status = 'Review'; r.note = ''; r.noteBy = ''; r.decidedBy = ''; r.decidedAt = ''; r.week = ''; delete r.revLater;
@@ -564,7 +583,7 @@ function finApply(db, u, op, nowIso, store, info) {
       var n1 = finText(d.note, 200);
       r.rev1 = { by: u.name, at: nowIso, rec: r.rec != null ? r.rec : null, recommend: recm, nature: nat, just: just, note: n1 };
       r.rvDraft = { lines: r.items.map(function (it) { return it.line || ''; }), prio: r.prio || '', nature: nat, recommend: recm, just: just, note: n1, items: r.rvItems || null, by: u.name, at: nowIso, first: true };
-      delete r.stage; delete r.rec; delete r.rvItems; delete r.revRec; delete r.revJust; delete r.nature;
+      r.stage = 'S'; delete r.rec; delete r.rvItems; delete r.revRec; delete r.revJust; delete r.nature;
       touched(r, 'Reviewed by the education office', r.lineName + (r.rvDraft.items ? ', recommended K' + rec : '') + (recm === 'no' ? ', not recommended' : '') + (nat ? ', ' + nat : '') + (just ? '. Why: ' + just : '') + (n1 ? '. ' + n1 : ''));
       return { ok: true };
     }
@@ -624,7 +643,7 @@ function finApply(db, u, op, nowIso, store, info) {
     if (d.planned != null) r.planned = finPlanned(d.planned);
     var q2 = saveFile(d.photo, 'quotation-' + r.id + '-' + ((r.revised || 0) + 1)); if (q2) r.quoteFile = q2;
     r.status = toRev2 ? 'Review' : 'Waiting'; r.revised = (r.revised || 0) + 1; r.revisedAt = nowIso; r.askedNote = r.note; r.askedBy = r.noteBy === 'review' ? r.decidedBy : ''; r.decidedBy = ''; r.decidedAt = ''; r.week = '';
-    if (toRev2) { r.revBy = ''; r.revAt = ''; r.revNote = ''; delete r.rec; delete r.rvItems; delete r.revRec; delete r.revJust; delete r.rev1; delete r.rvDraft; var st2 = finCross(db.users, u, r.section) || finStageFor(db, r, u); if (st2) r.stage = st2; else delete r.stage; }
+    if (toRev2) { r.revBy = ''; r.revAt = ''; r.revNote = ''; delete r.rec; delete r.rvItems; delete r.revRec; delete r.revJust; delete r.rev1; delete r.rvDraft; var st2 = finRoute(db.users, u, r.section); if (st2) r.stage = st2; else delete r.stage; }
     touched(r, 'Sent again after revision', what2 + ' K' + r.amount);
     return { ok: true };
   }
@@ -788,4 +807,4 @@ function finHandle(req, store) {
   return out;
 }
 
-if (typeof module !== 'undefined') module.exports = { finCross: finCross, FIN_EDU: FIN_EDU, finEdu: finEdu, finFinal: finFinal, finCanRev: finCanRev, finStageFor: finStageFor, finRecItems: finRecItems, finPubSettings: finPubSettings, finPlanned: finPlanned, finPart: finPart, finRevParts: finRevParts, finReviews: finReviews, finPaid: finPaid, finHandle: finHandle, finApply: finApply, finNewDb: finNewDb, finWorkDays: finWorkDays, finAskBy: finAskBy, finWeekKey: finWeekKey, finToday: finToday, finAddDays: finAddDays, finAddMonth: finAddMonth };
+if (typeof module !== 'undefined') module.exports = { finRoute: finRoute, FIN_EDU: FIN_EDU, finEdu: finEdu, finFinal: finFinal, finCanRev: finCanRev, finRecItems: finRecItems, finPubSettings: finPubSettings, finPlanned: finPlanned, finPart: finPart, finRevParts: finRevParts, finReviews: finReviews, finPaid: finPaid, finHandle: finHandle, finApply: finApply, finNewDb: finNewDb, finWorkDays: finWorkDays, finAskBy: finAskBy, finWeekKey: finWeekKey, finToday: finToday, finAddDays: finAddDays, finAddMonth: finAddMonth };
