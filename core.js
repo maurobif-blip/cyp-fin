@@ -6,12 +6,35 @@ var FIN_STATUSES = ['Review', 'Waiting', 'To revise', 'Approved', 'Next week', '
 var FIN_ROLES = ['head', 'director', 'accountant', 'viewer'];
 var FIN_TZ_MINUTES = 120; /* Zambia, UTC+2 */
 /* departments that ask but are not a section of the budget. The part says who reviews: S social (the Administrator), C commercial */
-var FIN_DEPTS = [['TRA', 'Transport', 'S'], ['MEW', 'Mechanics workshop', 'S'], ['MNT', 'Maintenance', 'S'], ['HRS', 'Human Resources', 'S'], ['MCP', 'Mary Christine', 'S'], ['HFH', 'Holy Family', 'S'], ['GIG', 'Gigi Bonta', 'C'], ['FRM', 'Farms', 'C']];
+var FIN_DEPTS = [['TRA', 'Transport', 'S'], ['MEW', 'Mechanics workshop', 'S'], ['MNT', 'Maintenance', 'S'], ['HRS', 'Human Resources', 'S'], ['MCP', 'Mary Christine', 'S'], ['HFH', 'Holy Family', 'S'], ['GIG', 'Gigi Bonta', 'C'], ['FRM', 'Farms', 'C'], ['ELE', 'Electrical works', 'C'], ['CPP', 'Carpentry production', 'C']];
 function finPart(code) { for (var i = 0; i < FIN_DEPTS.length; i++) if (FIN_DEPTS[i][0] === code) return FIN_DEPTS[i][2]; return 'S'; }
 /* a request is reviewed before the Director sees it: the reviewer gives it its budget lines */
 function finReviewOn(s) { return !s || s.review !== false; }
 function finRevParts(u) { var p = (u.reviews || []).slice(); if (u.role === 'accountant' && !p.length) p.push('C'); return p; }
-function finReviews(u, code) { return finRevParts(u).indexOf(finPart(code)) >= 0; }
+/* the education departments (centres, skills, sport, family, school): the Head of Department (part E) reviews them first,
+   then the social reviewer, then the Director (Mauro, 25/11) */
+var FIN_EDU = ['LUI', 'NKW', 'CSC', 'MIN', 'UCC', 'FAM', 'SCH', 'MEC', 'COM', 'CAR', 'AGR', 'TEN', 'FOO', 'BAS', 'GOL'];
+function finEdu(code) { return FIN_EDU.indexOf(String(code)) >= 0; }
+/* the reviewer who sends the department's requests to the Director */
+function finFinal(u, code) { return finRevParts(u).indexOf(finPart(code)) >= 0; }
+/* reviews the department at one of the two steps */
+function finReviews(u, code) { return finFinal(u, code) || (finRevParts(u).indexOf('E') >= 0 && finEdu(code)); }
+/* can review this request now: the first step is the education review, the second the reviewer of the part */
+function finCanRev(u, r) { if (r.by === u.id) return false; if (r.stage === 'E') return finRevParts(u).indexOf('E') >= 0 && finEdu(r.section); if (r.stage === 'S' || r.stage === 'C') return finRevParts(u).indexOf(r.stage) >= 0; return finFinal(u, r.section); }
+/* nobody reviews his own request: a reviewer asking for a department he sends to the Director goes to the reviewer of the other part
+   (Mulenga's administrative requests to Chiwele, 25/11). Returns that part, or '' when nobody else reviews it */
+function finCross(users, u, code) {
+  if (!finFinal(u, code)) return '';
+  var other = finPart(code) === 'S' ? 'C' : 'S';
+  for (var i = 0; i < users.length; i++) { var x = users[i]; if (x.active !== false && x.id !== u.id && finRevParts(x).indexOf(other) >= 0) return other; }
+  return '';
+}
+/* the first step is needed when the department is an education one, someone reviews education, and who asks is not that person */
+function finStageFor(db, r, u) {
+  if (!finEdu(r.section) || finRevParts(u).indexOf('E') >= 0) return '';
+  for (var i = 0; i < db.users.length; i++) { var x = db.users[i]; if (x.active !== false && x.id !== r.by && finRevParts(x).indexOf('E') >= 0) return 'E'; }
+  return '';
+}
 function finOpenLines(items) { for (var i = 0; i < (items || []).length; i++) if (!items[i].line) return true; return false; }
 
 function finNewDb() {
@@ -227,7 +250,7 @@ function finApply(db, u, op, nowIso, store, info) {
       /* several items in one request, each on its budget line; without the lines the request goes to the reviewer */
       bundle = finItems(d.items, true, finReviewOn(s)); if (!bundle) return fail('items');
       toRev = finOpenLines(bundle.items);
-      if (toRev && finReviews(u, d.section)) return fail('line');
+      if (toRev && finFinal(u, d.section) && !finCross(db.users, u, d.section)) return fail('line');
       amount = bundle.sum; if (toRev) { d.line = ''; d.lineName = ''; } else finItemLine(bundle, d);
       ppl = finPeople(d.people); if (ppl < 0) return fail('food');
     } else if (d.items) {
@@ -257,8 +280,9 @@ function finApply(db, u, op, nowIso, store, info) {
     r = { id: String(d.id), no: 'R' + ('000' + db.seq).slice(-4), section: String(d.section), what: what, amount: Math.round(amount * 100) / 100,
       line: String(d.line || ''), lineName: finText(d.lineName, 120), prio: d.prio || '', needed: d.needed, pay: d.pay === 'cash' ? 'cash' : 'bank',
       created: created, received: nowIso, notice: notice, emergency: emergency, reason: emergency ? finText(d.reason, 60) : '', why: emergency ? finText(d.why, 200) : '', purpose: finText(d.purpose, 300), planned: finPlanned(d.planned),
-      by: u.id, byName: u.name, byRole: u.role, status: toRev ? 'Review' : 'Waiting', selfRev: !toRev && finReviewOn(s) && finReviews(u, d.section) && !planKey, decidedBy: '', decidedAt: '', note: '', week: '', paidBy: '', paidAt: '',
+      by: u.id, byName: u.name, byRole: u.role, status: toRev ? 'Review' : 'Waiting', selfRev: !toRev && finReviewOn(s) && finFinal(u, d.section) && !planKey, decidedBy: '', decidedAt: '', note: '', week: '', paidBy: '', paidAt: '',
       receipt: false, receiptBy: '', receiptAt: '', quoteFile: saveFile(d.photo, 'quotation-' + d.id), receiptFile: '', deadline: d.deadline ? String(d.deadline) : '', plan: planKey, month: month, people: ppl, items: bundle ? bundle.items : null, food: food || null, parts: bundle ? null : finParts(d.parts, Math.round(amount * 100) / 100) };
+    if (toRev) { var st0 = finCross(db.users, u, r.section) || finStageFor(db, r, u); if (st0) r.stage = st0; }
     db.requests.push(r);
     touched(r, toRev ? 'New request, to review' : 'New request', what + ' K' + r.amount + (emergency ? ' EMERGENCY' : ''));
     if (r.deadline) {
@@ -420,7 +444,7 @@ function finApply(db, u, op, nowIso, store, info) {
       var others = 0; for (var i = 0; i < db.users.length; i++) if (db.users[i] !== x && db.users[i].admin && db.users[i].active !== false) others++;
       if (!others) return fail('last_admin');
     }
-    x.name = nm; x.title = finText(d.title, 40); x.role = d.role; x.sections = (d.sections || []).map(String); x.reviews = (d.reviews || []).map(String).filter(function (p) { return p === 'S' || p === 'C'; }); x.admin = !!d.admin; x.active = d.active !== false;
+    x.name = nm; x.title = finText(d.title, 40); x.role = d.role; x.sections = (d.sections || []).map(String); x.reviews = (d.reviews || []).map(String).filter(function (p) { return p === 'S' || p === 'C' || p === 'E'; }); x.admin = !!d.admin; x.active = d.active !== false;
     if (d.salt && d.cred) { x.salt = String(d.salt); x.cred = String(d.cred); x.fails = 0; x.lockUntil = ''; }
     bump(x); audit('Person saved', nm + ' (' + x.role + ')');
     return { ok: true };
@@ -486,9 +510,10 @@ function finApply(db, u, op, nowIso, store, info) {
   }
   /* the reviewer checks a request, gives each item its budget line (or says it is not in the budget) and sends it to the Director; or sends it back */
   if (t === 'req_review') {
-    if (!finReviews(u, r.section) || r.by === u.id) return fail('role');
-    /* a request already with the Director comes back to the review, before the Director decides */
+    if (r.by === u.id || (!finReviews(u, r.section) && !((r.stage === 'S' || r.stage === 'C') && finRevParts(u).indexOf(r.stage) >= 0))) return fail('role');
+    /* a request already with the Director comes back to the review, before the Director decides: only the reviewer who sent it there */
     if (d.reopen) {
+      if (r.stage === 'S' || r.stage === 'C' ? finRevParts(u).indexOf(r.stage) < 0 : !finFinal(u, r.section)) return fail('role');
       if ((r.status !== 'Waiting' && r.status !== 'Next week') || !r.items || !r.revAt) return fail('status');
       r.rvDraft = { lines: r.items.map(function (it) { return it.line || ''; }), prio: r.prio || '', nature: r.nature || '', recommend: r.revRec || '', just: r.revJust || '', note: r.revNote || '', items: r.rvItems || null };
       r.status = 'Review'; r.note = ''; r.noteBy = ''; r.decidedBy = ''; r.decidedAt = ''; r.week = ''; delete r.revLater;
@@ -496,6 +521,7 @@ function finApply(db, u, op, nowIso, store, info) {
       return { ok: true };
     }
     if (r.status !== 'Review' || !r.items) return fail('status');
+    if (!finCanRev(u, r)) return fail('role');
     if (d.draft) {
       var dr0 = d.draft;
       r.rvDraft = { lines: (dr0.lines || []).slice(0, r.items.length).map(function (x) { return finText(x, 20); }), prio: ['P1', 'P2', 'P3'].indexOf(dr0.prio) >= 0 ? dr0.prio : '', nature: dr0.nature === 'Exceptional' || dr0.nature === 'Normal' ? dr0.nature : '', recommend: dr0.recommend === 'no' || dr0.recommend === 'yes' ? dr0.recommend : '', just: finText(dr0.just, 300), note: finText(dr0.note, 200), items: finRecItems(dr0.items, r.items) || null, by: u.name, at: nowIso };
@@ -533,6 +559,15 @@ function finApply(db, u, op, nowIso, store, info) {
     if (rec !== null && rec < r.amount - 0.004) r.rec = rec; else delete r.rec;
     if (rvi && r.rec != null) r.rvItems = rvi; else delete r.rvItems;
     if (nat) r.nature = nat; r.revRec = recm; r.revJust = just; delete r.rvDraft; delete r.revLater;
+    if (r.stage === 'E') {
+      /* the education review is done: the request stays in the review, for the social reviewer, who starts from it */
+      var n1 = finText(d.note, 200);
+      r.rev1 = { by: u.name, at: nowIso, rec: r.rec != null ? r.rec : null, recommend: recm, nature: nat, just: just, note: n1 };
+      r.rvDraft = { lines: r.items.map(function (it) { return it.line || ''; }), prio: r.prio || '', nature: nat, recommend: recm, just: just, note: n1, items: r.rvItems || null, by: u.name, at: nowIso, first: true };
+      delete r.stage; delete r.rec; delete r.rvItems; delete r.revRec; delete r.revJust; delete r.nature;
+      touched(r, 'Reviewed by the education office', r.lineName + (r.rvDraft.items ? ', recommended K' + rec : '') + (recm === 'no' ? ', not recommended' : '') + (nat ? ', ' + nat : '') + (just ? '. Why: ' + just : '') + (n1 ? '. ' + n1 : ''));
+      return { ok: true };
+    }
     r.revBy = u.name; r.revAt = nowIso; r.revNote = finText(d.note, 200);
     r.status = 'Waiting'; r.note = ''; r.noteBy = ''; r.decidedBy = ''; r.decidedAt = '';
     touched(r, 'Reviewed', r.lineName + (r.rec != null ? ', recommended K' + r.rec : '') + (recm === 'no' ? ', not recommended' : '') + (nat ? ', ' + nat : '') + (just ? '. Why: ' + just : '') + (r.revNote ? '. ' + r.revNote : ''));
@@ -589,7 +624,7 @@ function finApply(db, u, op, nowIso, store, info) {
     if (d.planned != null) r.planned = finPlanned(d.planned);
     var q2 = saveFile(d.photo, 'quotation-' + r.id + '-' + ((r.revised || 0) + 1)); if (q2) r.quoteFile = q2;
     r.status = toRev2 ? 'Review' : 'Waiting'; r.revised = (r.revised || 0) + 1; r.revisedAt = nowIso; r.askedNote = r.note; r.askedBy = r.noteBy === 'review' ? r.decidedBy : ''; r.decidedBy = ''; r.decidedAt = ''; r.week = '';
-    if (toRev2) { r.revBy = ''; r.revAt = ''; r.revNote = ''; delete r.rec; delete r.rvItems; delete r.revRec; delete r.revJust; }
+    if (toRev2) { r.revBy = ''; r.revAt = ''; r.revNote = ''; delete r.rec; delete r.rvItems; delete r.revRec; delete r.revJust; delete r.rev1; delete r.rvDraft; var st2 = finCross(db.users, u, r.section) || finStageFor(db, r, u); if (st2) r.stage = st2; else delete r.stage; }
     touched(r, 'Sent again after revision', what2 + ' K' + r.amount);
     return { ok: true };
   }
@@ -749,8 +784,8 @@ function finHandle(req, store) {
   for (i = 0; i < db.deadlines.length; i++) if (db.deadlines[i].rev > since && (finSeesAll(u) || finHasSection(u, db.deadlines[i].section))) out.deadlines.push(db.deadlines[i]);
   /* the administrator reads all the comments; the others get back their own */
   for (i = 0; i < db.comments.length; i++) if (db.comments[i].rev > since && (u.admin || db.comments[i].by === u.id)) out.comments.push(db.comments[i]);
-  if ((db.settings.rev || 0) > since || full) out.settings = finPubSettings(db.settings, finSeesAll(u) || finRevParts(u).indexOf('S') >= 0);
+  if ((db.settings.rev || 0) > since || full) out.settings = finPubSettings(db.settings, finSeesAll(u) || finRevParts(u).indexOf('S') >= 0 || finRevParts(u).indexOf('E') >= 0);
   return out;
 }
 
-if (typeof module !== 'undefined') module.exports = { finRecItems: finRecItems, finPubSettings: finPubSettings, finPlanned: finPlanned, finPart: finPart, finRevParts: finRevParts, finReviews: finReviews, finPaid: finPaid, finHandle: finHandle, finApply: finApply, finNewDb: finNewDb, finWorkDays: finWorkDays, finAskBy: finAskBy, finWeekKey: finWeekKey, finToday: finToday, finAddDays: finAddDays, finAddMonth: finAddMonth };
+if (typeof module !== 'undefined') module.exports = { finCross: finCross, FIN_EDU: FIN_EDU, finEdu: finEdu, finFinal: finFinal, finCanRev: finCanRev, finStageFor: finStageFor, finRecItems: finRecItems, finPubSettings: finPubSettings, finPlanned: finPlanned, finPart: finPart, finRevParts: finRevParts, finReviews: finReviews, finPaid: finPaid, finHandle: finHandle, finApply: finApply, finNewDb: finNewDb, finWorkDays: finWorkDays, finAskBy: finAskBy, finWeekKey: finWeekKey, finToday: finToday, finAddDays: finAddDays, finAddMonth: finAddMonth };
