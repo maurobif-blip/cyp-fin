@@ -16,7 +16,7 @@
 <link rel="stylesheet" href="ds/tokens.css">
 <link rel="stylesheet" href="ds/bundle.css">
 <style>
-.cyp-table td.cyp-table__go,.cyp-table th.cyp-table__go{min-width:32px}.cyp-table.fin-reqs.fin-kv td:last-child{width:auto}.fin-kv tbody th{width:34%}.fin-cols>*,.fin-cols2>*{min-width:0}.fin-cols2{display:grid;grid-template-columns:1fr 1fr;gap:var(--space-3)}.fin-filters{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:var(--space-3)}.rv-item{border:0;border-top:1px solid var(--line);padding:var(--space-3) 0 0;margin:0}.rv-item legend{padding:0}.fin-grp th{text-align:left;padding-top:var(--space-4)}.fin-cols{display:grid;gap:var(--space-4)}@media (min-width:900px){.fin-cols{grid-template-columns:1fr 1fr;align-items:start}}.fin-link{cursor:pointer;-webkit-tap-highlight-color:transparent}.fin-link:active{background:var(--surface-soft)}.fin-link:focus-visible,.cyp-prow--link:focus-visible{outline:3px solid var(--focus);outline-offset:-3px}
+.cyp-table td.cyp-table__go,.cyp-table th.cyp-table__go{min-width:32px}.cyp-table.fin-reqs.fin-kv td:last-child{width:auto}.fin-kv tbody th{width:34%}.fin-cols>*,.fin-cols2>*{min-width:0}.fin-cols2{display:grid;grid-template-columns:1fr 1fr;gap:var(--space-3)}.fin-filters{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:var(--space-3)}.rv-item{border:0;border-top:1px solid var(--line);padding:var(--space-3) 0 0;margin:0}.rv-item legend{padding:0}.fin-grp th{text-align:left;padding-top:var(--space-4)}.fin-backtop{align-self:flex-start;margin-bottom:var(--space-2)}.fin-acts{display:flex;gap:var(--space-2);flex-wrap:wrap;justify-content:flex-end}.fin-person{flex-wrap:wrap}.cyp-input[type=date]{max-width:12rem}.fin-links{margin-top:var(--space-6);padding-top:var(--space-4);border-top:1px solid var(--line)}.fin-cols{display:grid;gap:var(--space-4)}@media (min-width:900px){.fin-cols{grid-template-columns:1fr 1fr;align-items:start}}.fin-link{cursor:pointer;-webkit-tap-highlight-color:transparent}.fin-link:active{background:var(--surface-soft)}.fin-link:focus-visible,.cyp-prow--link:focus-visible{outline:3px solid var(--focus);outline-offset:-3px}
 .fin-amt{display:inline-flex;align-items:center;gap:var(--space-1)}.cyp-prow__head .cyp-go{margin-left:var(--space-1)}
 .sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
 /* CYP FIN: the layout of the app around the classes of the CYP design system (ds/bundle.css).
@@ -136,7 +136,7 @@ img.photo{max-width:100%;border:1px solid var(--line)}
 <script src="core.js"></script>
 <script>
 'use strict';
-var FIN_VERSION = 'beta 1.9';
+var FIN_VERSION = 'beta 1.10';
 
 /* ================= small tools ================= */
 function esc(s) { return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]; }); }
@@ -279,7 +279,8 @@ function act(t, d) {
 
 function mergeList(list, items) { items.forEach(function (x) { var i = -1; for (var k = 0; k < list.length; k++) if (list[k].id === x.id) { i = k; break; } if (i < 0) list.push(x); else list[i] = x; }); }
 function sync() {
-  if (S.syncing || !S.me || !S.cfg) return Promise.resolve();
+  if (S.syncing) { S.syncAgain = true; return Promise.resolve(); }
+  if (!S.me || !S.cfg) return Promise.resolve();
   S.syncing = true;
   var ops = myQueue().slice(0, 8), before = S.cache.since + ':' + S.queue.length + ':' + S.online;
   return call({ action: 'sync', user: S.me.id, cred: S.cred, since: S.cache.since, ops: ops }).then(function (res) {
@@ -308,7 +309,8 @@ function sync() {
     S.syncing = false;
     var after = S.cache ? S.cache.since + ':' + S.queue.length + ':' + S.online : '';
     if (after !== before || S.notices.length) render();
-    if (S.me && S.online && myQueue().length) setTimeout(sync, 400);
+    if (S.me && S.online && myQueue().length) setTimeout(sync, S.syncAgain ? 0 : 400);
+    S.syncAgain = false;
   });
 }
 function remember() {
@@ -536,7 +538,15 @@ function formMonth(prev) {
   f.what = L.name + ', ' + ymText(f.month); f.planAmt = amt; f.needed = g && g.first ? g.first : f.month + '-01'; f.plan = L.id + '|' + f.month + '|m'; f.cMonth = f.month;
 }
 /* with the review, who asks says what is needed and the reviewer gives the budget line; requests from the plan keep their line */
-function plainAsk() { var f = S.ui.form; return reviewOn() && S.me.role !== 'director' && S.me.role !== 'viewer' && (!finFinal(S.me, f.section) || !!finCross(V().users, S.me, f.section)) && !f.plan && !f.deadline && !f.month; }
+function plainAsk() { var f = S.ui.form; return reviewOn() && S.me.role !== 'director' && S.me.role !== 'viewer' && (!finFinal(S.me, f.section) || !!finRoute(V().users, S.me, f.section)) && !f.plan && !f.deadline && !f.month; }
+function partNamesAll(pt) { return V().users.filter(function (x) { return x.active !== false && x.role === 'accountant' && finRevParts(x).indexOf(pt) >= 0; }).map(function (x) { return x.name; }); }
+/* in words: who reviews a request of this person for this department, before the Director */
+function routeText(sec) {
+  var w = finRoute(V().users, S.me, sec || ''), own = finRevParts(S.me).length > 0 && S.me.role === 'accountant';
+  if (!w) return '';
+  var n = function (pt) { return partNamesAll(pt).filter(function (x) { return x !== S.me.name; }).join(', '); };
+  return (own ? 'Your own request: reviewed by ' : 'Reviewed by ') + (w === 'E' ? n('E') + ', then ' + n('S') : n(w));
+}
 function partNames(pt) { return V().users.filter(function (x) { return x.active !== false && x.id !== S.me.id && finRevParts(x).indexOf(pt) >= 0; }).map(function (x) { return x.name; }); }
 function isFoodForm() { var f = S.ui.form; return LINE[f.line] ? lineFood(LINE[f.line]) : secQty(f.section); }
 /* ---- a request with several items, as the rows of the paper form. Item 1 is the form itself; the others are w1, l1, q1, u1, p1, s1 and so on ---- */
@@ -854,7 +864,7 @@ function scrFirst() {
 var STREAMS = [['ask', 'Send a request', 'send'], ['review', 'Review', 'mine'], ['approve', 'Approve', 'decide'], ['admin', 'Administrator', 'people']];
 function streamName(k) { for (var i = 0; i < STREAMS.length; i++) if (STREAMS[i][0] === k) return STREAMS[i][1]; return 'Pay and other'; }
 function streamPeople(k) {
-  var l = S.users.filter(function (u) { return u.active !== false; });
+  var l = S.users.filter(function (u) { return u.active !== false && !u.deleted; });
   if (k === 'ask') l = l.filter(function (u) { return u.role === 'head'; });
   else if (k === 'review') l = l.filter(function (u) { return finRevParts(u).length > 0; });
   else if (k === 'approve') l = l.filter(function (u) { return u.role === 'director'; });
@@ -868,7 +878,7 @@ function scrLogin() {
     var sico = { ask: 'plus', review: 'search', approve: 'check', admin: 'settings' };
     h = '<main class="fin-home">' + (S.ui.msg ? '<div class="cyp-banner cyp-banner--warn box warn">' + di('triangle-alert') + esc(S.ui.msg) + '</div>' : '') + '<h1>What do you need to do?</h1>' + (S.users.length ? '' : noList) + '<div class="list">' + STREAMS.map(function (st, n) {
       return '<button type="button" class="cyp-btn cyp-btn--block' + (n ? '' : ' cyp-btn--primary') + ' btn stream" id="st-' + st[0] + '" data-a="stream" data-id="' + st[0] + '">' + di(sico[st[0]]) + st[1] + '</button>';
-    }).join('') + '</div><div class="list">';
+    }).join('') + '</div><div class="list fin-links"><div class="lab">Other</div>';
     if (S.cfg.mode === 'demo' && S.shared) h += '<button type="button" class="cyp-btn cyp-btn--block btn" data-a="leaveDemo">Leave the demo</button>';
     else h += '<button type="button" class="cyp-btn cyp-btn--block btn" data-a="forget">Use another link</button>';
     if (S.cfg.mode === 'shared') h += '<button type="button" class="cyp-btn cyp-btn--block btn" data-a="demo">Try the demo</button><span class="cyp-field__help">Invented data.</span>';
@@ -925,7 +935,7 @@ function reqDoc(r) {
   var v = V(), now = new Date(), isC = counted(r, v.settings), kf = isC && r.closed && r.amount > 0 ? finPaid(r) / r.amount : 1;
   var kv = function (l, val, wide) { return '<div' + (wide ? ' class="wide"' : '') + '><dt class="label-caps">' + l + '</dt><dd>' + (val || '') + '</dd></div>'; };
   var h = '<div class="cyp-doc"><header class="cyp-dochead"><img src="ds/cyp-seal.png" alt="Cicetekelo Youth Project"><div><div class="cyp-dochead__org label-caps">Cicetekelo Youth Project</div><h1 class="heading-2">Payment request</h1></div><dl><dt>Section</dt><dd>' + esc(secName(r.section)) + '</dd><dt>Number</dt><dd>' + reqNo(r) + '</dd><dt>Made by</dt><dd>CYP FIN</dd></dl></header>';
-  h += '<dl class="cyp-kv">' + kv('Requested by', esc(r.byName)) + kv('Date', d3(r.created)) + kv('Needed on', d3(r.needed)) + kv('Priority', prioText(r) + (r.emergency ? ', Emergency' : '')) + kv('Pay by', payText(r)) + kv('State in CYP FIN', esc((PILL[r.status] || PILL.Waiting)[0]) + (r.decidedBy && r.decidedAt ? ', ' + esc(r.decidedBy) + ', ' + d3(finToday(r.decidedAt)) : '')) + kv('What', esc(r.what), true) + (r.purpose ? kv('Why it is needed', esc(r.purpose), true) : '') + (r.planned ? kv('Planned', plannedText(r.planned)) : '') + (r.emergency ? kv('Reason of the Emergency', esc(r.reason) + (r.why ? ': ' + esc(r.why) : ''), true) : '') + '</dl>';
+  h += '<dl class="cyp-kv">' + kv('Requested by', esc(byOf(r))) + kv('Date', d3(r.created)) + kv('Needed on', d3(r.needed)) + kv('Priority', prioText(r) + (r.emergency ? ', Emergency' : '')) + kv('Pay by', payText(r)) + kv('State in CYP FIN', esc((PILL[r.status] || PILL.Waiting)[0]) + (r.decidedBy && r.decidedAt ? ', ' + esc(r.decidedBy) + ', ' + d3(finToday(r.decidedAt)) : '')) + kv('What', esc(r.what), true) + (r.purpose ? kv('Why it is needed', esc(r.purpose), true) : '') + (r.planned ? kv('Planned', plannedText(r.planned)) : '') + (r.emergency ? kv('Reason of the Emergency', esc(r.reason) + (r.why ? ': ' + esc(r.why) : ''), true) : '') + '</dl>';
   var rows;
   if (r.items && r.month) rows = r.items.map(function (it) { return [esc(LINE[it.line] ? LINE[it.line].name : it.lineName || it.line), '', '', it.amount]; });
   else if (isRows(r)) rows = r.items.map(function (it) { var q = it.qty == null ? 1 : it.qty; return [esc(it.what || it.lineName || ''), kw(q) + (it.unit ? ' ' + esc(it.unit) : ''), it.price != null ? k2(it.price) : '', it.amount]; });
@@ -1022,7 +1032,7 @@ function reqCard(r, opt) {
   if (r.asked != null && (r.status === 'Approved' || r.status === 'Paid')) h += '<div class="s b num">Approved ' + money(r.amount) + ' of ' + money(r.asked) + '</div>';
   if (pdc > 0 && r.status === 'Approved') h += '<div class="s b num">Paid ' + money(pdc) + ' of ' + money(r.amount) + '</div>';
   if (r.closed) h += '<div class="s num">Paid ' + money(pdc) + ' of ' + money(r.amount) + '. Closed.</div>';
-  if (opt.review) h += '<div class="s m">Asked by ' + esc(r.byName) + ', ' + day(r.created) + '</div><div class="s b ' + (r.quoteFile ? 'm' : 'cyp-text-warn ask') + '">' + (r.quoteFile ? 'Quotation attached' : 'No quotation') + '</div>' + (isRows(r) ? rowsHtml(r) : '');
+  if (opt.review) h += '<div class="s m">Asked by ' + esc(byOf(r)) + ', ' + day(r.created) + '</div><div class="s b ' + (r.quoteFile ? 'm' : 'cyp-text-warn ask') + '">' + (r.quoteFile ? 'Quotation attached' : 'No quotation') + '</div>' + (isRows(r) ? rowsHtml(r) : '');
   else if (opt.budget) {
     if (r.revBy) h += '<div class="s m">Reviewed by ' + esc(r.revBy) + (r.revNote ? ': ' + esc(r.revNote) : '') + '</div>';
     h += quoteTag(r);
@@ -1129,10 +1139,11 @@ function scrNew() {
   if (ed) h += '<div class="cyp-note cyp-note--warn box em"><div class="b">The Director asks to change:</div><div>' + esc(ed.note) + '</div></div><div class="sec">' + esc(secName(ed.section)) + '</div>';
   else if (item) h += '';
   else if (secs.length) {
+    if (S.me.role === 'accountant' && reviewOn()) { var heads = V().users.filter(function (x) { return x.role === 'head' && x.active !== false; }).sort(byPosition); if (heads.length) h += field('On behalf of', 'rq-behalf', '<select class="cyp-input in" id="rq-behalf" data-f="behalf">' + options([['', 'Myself']].concat(heads.map(function (x) { return [x.id, titleOf(x) + ' · ' + x.name]; })), f.behalf || '') + '</select>'); }
     var has = { S: secs.some(function (c) { return finPart(c) === 'S'; }), C: secs.some(function (c) { return finPart(c) === 'C'; }) }, both = has.S && has.C;
     if (!f.div || !has[f.div]) f.div = f.section ? finPart(f.section) : has.S ? 'S' : 'C';
     var revs = V().users.filter(function (x) { return x.active !== false && x.role === 'accountant' && finRevParts(x).indexOf(f.div) >= 0; }).map(function (x) { return x.name; });
-    h += '<fieldset class="cyp-choice field" id="rq-div"><legend>Division</legend><div class="cyp-choice__row">' + [['S', 'Social'], ['C', 'Commercial']].map(function (p) { return '<label><input type="radio" name="rq-div-r" data-a="setDiv" data-id="' + p[0] + '"' + (f.div === p[0] ? ' checked' : '') + (has[p[0]] ? '' : ' disabled') + '><span>' + p[1] + '</span></label>'; }).join('') + '</div><span class="cyp-field__help" id="rq-div-rev">' + (f.section && finCross(V().users, S.me, f.section) ? 'Your own request: reviewed by ' + esc(partNames(finCross(V().users, S.me, f.section)).join(', ')) : revs.length ? 'Reviewed by ' + (f.section && finEdu(f.section) && eduNames().length && !finFinal(S.me, f.section) && finRevParts(S.me).indexOf('E') < 0 ? esc(eduNames().join(', ')) + ', then ' : '') + esc(revs.join(', ')) : 'No reviewer for this part yet.') + '</span></fieldset>';
+    h += '<fieldset class="cyp-choice field" id="rq-div"><legend>Division</legend><div class="cyp-choice__row">' + [['S', 'Social'], ['C', 'Commercial']].map(function (p) { return '<label><input type="radio" name="rq-div-r" data-a="setDiv" data-id="' + p[0] + '"' + (f.div === p[0] ? ' checked' : '') + (has[p[0]] ? '' : ' disabled') + '><span>' + p[1] + '</span></label>'; }).join('') + '</div><span class="cyp-field__help" id="rq-div-rev">' + esc(routeText(f.section) || (revs.length ? 'Reviewed by ' + revs.join(', ') : 'No reviewer for this part yet.')) + '</span></fieldset>';
     var dsecs = secs.filter(function (c) { return finPart(c) === f.div; });
     if (dsecs.length === 1) f.section = dsecs[0];
     if (f.section && dsecs.indexOf(f.section) < 0) f.section = '';
@@ -1203,7 +1214,7 @@ function isOpenReq(r) { return r.status === 'Review' || r.status === 'Waiting' |
 /* a fixed cost sent by the management: the section head does not handle it and does not see it */
 function notMine(r) { return !!S.me && S.me.role === 'head' && r.by !== S.me.id && !!LINE[r.line] && lineFixed(LINE[r.line]); }
 function myOpen() {
-  return V().requests.filter(function (r) { return (r.by === S.me.id || S.me.sections.indexOf(r.section) >= 0) && isOpenReq(r) && !notMine(r); })
+  return V().requests.filter(function (r) { return (r.by === S.me.id || r.behalfId === S.me.id || S.me.sections.indexOf(r.section) >= 0) && isOpenReq(r) && !notMine(r); })
     .sort(function (a, b) { var ra = a.status === 'To revise', rb = b.status === 'To revise'; if (ra !== rb) return ra ? -1 : 1; return (b.received || '') < (a.received || '') ? -1 : 1; });
 }
 function mineOwn(r) { return (r.by === S.me.id || S.me.sections.indexOf(r.section) >= 0) && !notMine(r); }
@@ -1212,7 +1223,8 @@ function myRefused() { var from = finAddDays(today(), -14); return V().requests.
 function scrMine() {
   var list = myOpen(), rev = list.filter(function (r) { return r.status === 'To revise'; }).length, rec = myReceipts(), no = myRefused(), sec = S.me.sections.length > 1;
   var h = '<main><h1>My requests</h1>';
-  if (S.ui.msg) h += '<div class="cyp-banner cyp-banner--ok box ok" role="status">' + di('circle-check') + '' + esc(S.ui.msg) + '</div>';
+  if (S.ui.msg) h += '<div class="cyp-banner cyp-banner--ok box ok" role="status">' + di('circle-check') + '' + esc(S.ui.msg) + '</div>' + sendState();
+  else if (myQueue().length) h += sendState();
   h += '<div class="m">' + plural(list.length, 'open request', 'open requests') + (rev ? ' · ' + rev + ' to revise' : '') + '</div>';
   if (!list.length) h += '<div class="s m">Nothing open.</div>';
   list.slice(0, 80).forEach(function (r) { h += reqCard(r, { sec: sec, actions: r.status === 'To revise' ? '<button type="button" class="cyp-btn btn" data-a="reviseOpen" data-id="' + esc(r.id) + '">Change and send again</button>' : '' }); });
@@ -1236,8 +1248,9 @@ function revLineOptions(r, val) {
 function kvT(label, val) { return '<tr><th scope="row">' + label + '</th><td>' + val + '</td></tr>'; }
 function statusText(r) { return (PILL[r.status] || PILL.Waiting)[0]; }
 function socRev() { return !!S.me && reviewOn() && S.me.role !== 'director' && S.me.role !== 'viewer' && (finRevParts(S.me).indexOf('S') >= 0 || finRevParts(S.me).indexOf('E') >= 0); }
-function inMine(r) { return finReviews(S.me, r.section); }
-function natureOf(r) { return r.nature || (r.emergency ? 'Exceptional' : 'Normal'); }
+function inMine(r) { return (r.stage ? finRevParts(S.me).indexOf(r.stage) >= 0 : finReviews(S.me, r.section)) || (!!r.rev1 && finRevParts(S.me).indexOf('E') >= 0); }
+function natureOf(r) { var n = r.nature || (r.emergency ? 'Exceptional' : 'Normal'); return n === 'Normal' ? 'Routine' : n; }
+function byOf(r) { return r.byName + (r.behalf ? ' for ' + r.behalf : ''); }
 function laterOf(r) { return r.status === 'Review' && r.revLater && r.revLater > today() ? r.revLater : ''; }
 function dayOf(x) { return String(x || '').slice(0, 10); }
 var STOPW = ' and the for with from per new old this that pieces piece bags units ';
@@ -1307,11 +1320,13 @@ function chooser(id, legend, name, act, list, val) { return '<fieldset class="cy
 function eduTable() {
   var l = eduWait(); if (!l.length) return '';
   return '<div class="cyp-scroll"><table class="cyp-table cyp-table--dense fin-reqs" id="rv-edu"><caption>With the education review' + (eduNames().length ? ' (' + esc(eduNames().join(', ')) + ')' : '') + ' · ' + l.length + '</caption><thead><tr><th scope="col">Request</th><th scope="col">Needed</th><th scope="col" class="num">Asked</th><th class="cyp-table__go" aria-label="Open"></th></tr></thead><tbody>' +
-    l.map(function (r) { return '<tr class="tap cyp-tr--link"' + lk('rvSee', r.id) + '><td><b>' + esc(r.what) + '</b><div class="s m">' + reqNo(r) + ' · ' + esc(secName(r.section)) + ' · ' + esc(r.byName) + '</div></td><td>' + day(r.needed) + '</td><td class="num">' + kw(askedOf(r)) + '</td><td class="cyp-table__go">' + goIcon() + '</td></tr>'; }).join('') + '</tbody></table></div>';
+    l.map(function (r) { return '<tr class="tap cyp-tr--link"' + lk('rvSee', r.id) + '><td><b>' + esc(r.what) + '</b><div class="s m">' + reqNo(r) + ' · ' + esc(secName(r.section)) + ' · ' + esc(byOf(r)) + '</div></td><td>' + day(r.needed) + '</td><td class="num">' + kw(askedOf(r)) + '</td><td class="cyp-table__go">' + goIcon() + '</td></tr>'; }).join('') + '</tbody></table></div>';
 }
+function sendState() { var n = myQueue().length; return '<div class="s m" id="send-state" role="status">' + (n ? (S.online === false ? 'Not sent yet: no network. It goes when the network is back, even after the app is closed and opened again.' : 'Sending to the database. You can go on working.') : 'Saved in the database.') + '</div>'; }
 function revList() {
   var list = toReview(), soc = socRev(), h = '<main>' + (soc || S.me.role === 'head' || !(S.ui.hist || []).length ? '<h1>' + (soc ? 'Requests to review' : 'To review') + '</h1>' : '<div class="row" style="align-items:center"><h1>To review</h1><button type="button" class="cyp-btn btn" data-a="back">Back</button></div>');
-  if (S.ui.msg) h += '<div class="cyp-banner cyp-banner--ok box ok" role="status">' + di('circle-check') + '' + esc(S.ui.msg) + '</div>';
+  if (S.ui.msg) h += '<div class="cyp-banner cyp-banner--ok box ok" role="status">' + di('circle-check') + '' + esc(S.ui.msg) + '</div>' + sendState();
+  else if (myQueue().length) h += sendState();
   h += '<div class="m">' + plural(list.length, 'request', 'requests') + ' · ' + money(sumOf(list)) + '</div>';
   if (!list.length) return h + '<div class="s m">Nothing to review.</div>' + eduTable() + '</main>';
   h += '<div class="cyp-scroll"><table class="cyp-table cyp-table--dense fin-reqs" id="rv-list"><thead><tr><th scope="col">Request</th><th scope="col">Needed</th><th scope="col" class="num">Asked</th><th scope="col">Flags</th><th class="cyp-table__go" aria-label="Open"></th></tr></thead><tbody>';
@@ -1323,7 +1338,7 @@ function revList() {
     if (r.emergency) fl.push('<span class="cyp-tag cyp-tag--warn">Short notice</span>');
     if (r.rvDraft) fl.push('<span class="cyp-tag">' + (r.rvDraft.first ? 'Reviewed by ' + esc(r.rvDraft.by) : 'Draft') + '</span>');
     if (r.grp) fl.push('<span class="cyp-tag">' + esc(r.grp.name) + '</span>');
-    h += '<tr class="tap cyp-tr--link"' + lk('revOpen', r.id) + '><td><b>' + esc(r.what) + '</b><div class="s m">' + reqNo(r) + ' · ' + esc(secName(r.section)) + ' · ' + esc(r.byName) + '</div></td><td>' + day(r.needed) + '</td><td class="num">' + kw(r.amount) + '</td><td>' + (fl.join(' ') || '–') + '</td><td class="cyp-table__go">' + goIcon() + '</td></tr>';
+    h += '<tr class="tap cyp-tr--link"' + lk('revOpen', r.id) + '><td><b>' + esc(r.what) + '</b><div class="s m">' + reqNo(r) + ' · ' + esc(secName(r.section)) + ' · ' + esc(byOf(r)) + '</div></td><td>' + day(r.needed) + '</td><td class="num">' + kw(r.amount) + '</td><td>' + (fl.join(' ') || '–') + '</td><td class="cyp-table__go">' + goIcon() + '</td></tr>';
   });
   return h + '</tbody></table></div>' + eduTable() + '</main>';
 }
@@ -1337,11 +1352,11 @@ function scrReview() {
   if (r.revised && r.askedNote) h += '<div class="s m">Sent again. ' + esc(r.askedBy || 'The Director') + ' had asked: ' + esc(r.askedNote) + '</div>';
   if (r.rvDraft && r.rvDraft.first) h += '<div class="cyp-banner cyp-banner--ok box ok" id="rv-first" role="status">' + di('circle-check') + '<div>Reviewed first by ' + esc(r.rvDraft.by || '') + ', ' + when(r.rvDraft.at) + (r.rvDraft.just ? '. Why: ' + esc(r.rvDraft.just) : '') + (r.rvDraft.note ? '. ' + esc(r.rvDraft.note) : '') + '. The review below starts from it.</div></div>';
   else if (r.rvDraft) h += '<div class="s m" id="rv-draft">Draft saved by ' + esc(r.rvDraft.by || '') + ', ' + when(r.rvDraft.at) + '</div>';
-  if (r.stage === 'S' || r.stage === 'C') h += '<div class="s m" id="rv-next">' + esc(r.byName) + ' reviews this department: you review the request, then the Director decides.</div>';
+  if ((r.stage === 'S' || r.stage === 'C') && r.byRole === 'accountant') h += '<div class="s m" id="rv-next">Asked by ' + esc(byOf(r)) + ', a reviewer: you review it, then the Director decides.</div>';
   if (r.stage === 'E') h += '<div class="s m" id="rv-next">Education review. Then: ' + esc(V().users.filter(function (x) { return x.active !== false && finFinal(x, r.section); }).map(function (x) { return x.name; }).join(', ') || 'the social reviewer') + ', then the Director.</div>';
   /* the request as it was sent: it does not change with the review */
   h += '<div class="fin-cols"><div><table class="cyp-table fin-reqs fin-kv" id="rv-orig"><caption>Original request</caption><tbody>' +
-    kvT('Request', '<b>' + esc(r.what) + '</b>') + kvT('Department', esc(secName(r.section)) + (finPart(r.section) === 'C' ? ' · commercial' : '')) + kvT('Asked by', esc(r.byName) + ', ' + day(r.created)) +
+    kvT('Request', '<b>' + esc(r.what) + '</b>') + kvT('Department', esc(secName(r.section)) + (finPart(r.section) === 'C' ? ' · commercial' : '')) + kvT('Asked by', esc(byOf(r)) + ', ' + day(r.created)) +
     kvT('Needed', day(r.needed) + ' · ' + plural(r.notice, 'working day', 'working days') + ' notice' + (r.emergency ? '<div class="s cyp-text-warn">' + esc(r.reason) + ': ' + esc(r.why) + '</div>' : '')) +
     kvT('Pay by', payText(r)) + (r.purpose ? kvT('Why', esc(r.purpose)) : '') + (r.planned ? kvT('Planned', plannedText(r.planned)) : '') + (r.people ? kvT('For', plural(r.people, 'person', 'people')) : '') + '</tbody></table>';
   h += '<div class="cyp-scroll"><table class="cyp-table cyp-table--dense fin-reqs" id="rv-oitems"><thead><tr><th scope="col">Item</th><th scope="col" class="num">Qty</th><th scope="col" class="num">Unit cost</th><th scope="col" class="num">Amount</th></tr></thead><tbody>' +
@@ -1370,13 +1385,13 @@ function scrReview() {
       '<div class="s num" id="rv-amt' + i + '">' + (x ? 'Recommended ' + money(x.amount) + (Math.abs(x.amount - it.amount) > 0.004 ? ' · asked ' + money(it.amount) : '') : 'Write the quantity and the unit cost as numbers.') + '</div></fieldset>';
   });
   if (tot != null) h += '<div class="b num" id="rv-total">Recommended total: ' + money(tot) + (tot < r.amount - 0.004 ? ' · ' + money(r2(r.amount - tot)) + ' less than asked' : '') + '</div>';
-  h += chooser('rv-nat', 'Nature', 'rv-nat-r', 'setNat', [['Normal', 'Normal'], ['Exceptional', 'Exceptional']], f.nat);
+  h += chooser('rv-nat', 'Nature', 'rv-nat-r', 'setNat', [['Normal', 'Routine'], ['Exceptional', 'Exceptional']], f.nat);
   h += chooser('rv-prio', 'Priority', 'rv-prio-r', 'setPrio', [['P1', 'P1'], ['P2', 'P2'], ['P3', 'P3']], f.prio) + '<div class="s m">P1 essential this week · P2 necessary but flexible · P3 not urgent</div>';
   h += chooser('rv-recm', 'Recommendation to the Director', 'rv-recm-r', 'setRecm', [['yes', 'Recommend'], ['no', 'Do not recommend']], f.recm);
   h += field('Justification', 'rv-just', '<textarea class="cyp-input in" id="rv-just" data-f="just" rows="2" maxlength="300">' + esc(f.just || '') + '</textarea>', why.length ? 'Needed: ' + why.join(', ') + '.' : 'Needed for exceptional expenditure, budget exceptions, lower amounts and a negative recommendation.');
   h += field('Comments for the Director', 'rv-note', input('rv-note', 'rnote', f.rnote, 'text', 'maxlength="200"'));
   if (S.ui.err) h += '<div class="cyp-banner cyp-banner--danger box err" role="alert">' + di('circle-x') + '' + esc(S.ui.err) + '</div>';
-  return h + '<button type="button" class="cyp-btn cyp-btn--primary cyp-btn--block btn big pri" data-a="revSend">' + (r.stage === 'E' ? 'Forward to the social review' : 'Forward to the Director') + '</button><div class="btns"><button type="button" class="cyp-btn btn" data-a="revDraft">Save draft</button><button type="button" class="cyp-btn btn" data-a="revBack">Return to ' + esc(r.byName) + '</button><button type="button" class="cyp-btn btn" data-a="revLater">Postpone</button></div></main>';
+  return h + '<button type="button" class="cyp-btn cyp-btn--primary cyp-btn--block btn big pri" data-a="revSend">' + (r.stage === 'E' ? 'Forward to the social review' : 'Forward to the Director') + '</button><div class="btns"><button type="button" class="cyp-btn btn" data-a="revDraft">Save draft</button><button type="button" class="cyp-btn btn" data-a="revBack">Return to ' + esc(byOf(r)) + '</button><button type="button" class="cyp-btn btn" data-a="revLater">Postpone</button></div></main>';
 }
 /* ---------- Overview ---------- */
 function retLists() {
@@ -1424,7 +1439,7 @@ function scrWkl() {
   h += '<div class="fin-filters">' + field('Department', 'wk-dept', '<select class="cyp-input in" id="wk-dept" data-f="wDept" data-r="1">' + options([['', 'All']].concat(depts.map(function (c) { return [c, secName(c)]; })), f.wDept || '') + '</select>') +
     field('Budget section', 'wk-line', '<select class="cyp-input in" id="wk-line" data-f="wLine" data-r="1">' + options([['', 'All']].concat(secs.map(function (c) { return [c, secName(c)]; })), f.wLine || '') + '</select>') +
     field('Priority', 'wk-prio-f', '<select class="cyp-input in" id="wk-prio-f" data-f="wPrio" data-r="1">' + options([['', 'All'], ['P1', 'P1'], ['P2', 'P2'], ['P3', 'P3']], f.wPrio || '') + '</select>') +
-    field('Nature', 'wk-nat', '<select class="cyp-input in" id="wk-nat" data-f="wNat" data-r="1">' + options([['', 'All'], ['Normal', 'Normal'], ['Exceptional', 'Exceptional']], f.wNat || '') + '</select>') +
+    field('Nature', 'wk-nat', '<select class="cyp-input in" id="wk-nat" data-f="wNat" data-r="1">' + options([['', 'All'], ['Routine', 'Routine'], ['Exceptional', 'Exceptional']], f.wNat || '') + '</select>') +
     field('Needed by', 'wk-need', '<input class="cyp-input in" id="wk-need" type="date" data-f="wNeed" data-r="1" value="' + esc(f.wNeed || '') + '">') +
     field('Group by', 'wk-grp', '<select class="cyp-input in" id="wk-grp" data-f="wGrp" data-r="1">' + options(WK_GROUPS, f.wGrp || '') + '</select>') + '</div>';
   var g = f.wGrp || '', rows = list.slice();
@@ -1435,7 +1450,7 @@ function scrWkl() {
   rows.forEach(function (r) {
     if (g) { var k = wkKey(r, g); if (k !== cur) { cur = k; var gl = rows.filter(function (x) { return wkKey(x, g) === k; }); h += '<tr class="fin-grp"><th scope="rowgroup" colspan="10">' + esc(k) + ' · ' + gl.length + ' · ' + kw(r2(sumR(gl))) + '</th></tr>'; } }
     var sv = r2(askedOf(r) - recOf(r)), fl = dupsOf(r).length ? ' · <span class="cyp-text-warn">possible duplicate</span>' : '';
-    h += '<tr class="tap cyp-tr--link"' + lk('rvSee', r.id) + '><td><b>' + esc(r.what) + '</b><div class="s m">' + reqNo(r) + ' · ' + esc(secName(r.section)) + (r.status === 'Next week' ? ' · deferred' : '') + (r.grp && g !== 'grp' ? ' · ' + esc(r.grp.name) : '') + fl + '</div></td><td>' + lineCell(r) + '</td><td>' + day(r.needed) + '</td><td>' + esc(r.prio || '–') + '</td><td>' + (natureOf(r) === 'Exceptional' ? '<span class="cyp-tag cyp-tag--warn">Exceptional</span>' : 'Normal') + '</td><td class="num">' + kw(askedOf(r)) + '</td><td class="num">' + kw(recOf(r)) + '</td><td class="num">' + (sv > 0 ? kw(sv) : '–') + '</td><td>' + (r.revRec === 'no' ? '<span class="cyp-text-danger b">Do not approve</span>' : r.revBy ? 'Approve' : '–') + '</td><td class="cyp-table__go">' + goIcon() + '</td></tr>';
+    h += '<tr class="tap cyp-tr--link"' + lk('rvSee', r.id) + '><td><b>' + esc(r.what) + '</b><div class="s m">' + reqNo(r) + ' · ' + esc(secName(r.section)) + (r.status === 'Next week' ? ' · deferred' : '') + (r.grp && g !== 'grp' ? ' · ' + esc(r.grp.name) : '') + fl + '</div></td><td>' + lineCell(r) + '</td><td>' + day(r.needed) + '</td><td>' + esc(r.prio || '–') + '</td><td>' + (natureOf(r) === 'Exceptional' ? '<span class="cyp-tag cyp-tag--warn">Exceptional</span>' : 'Routine') + '</td><td class="num">' + kw(askedOf(r)) + '</td><td class="num">' + kw(recOf(r)) + '</td><td class="num">' + (sv > 0 ? kw(sv) : '–') + '</td><td>' + (r.revRec === 'no' ? '<span class="cyp-text-danger b">Do not approve</span>' : r.revBy ? 'Approve' : '–') + '</td><td class="cyp-table__go">' + goIcon() + '</td></tr>';
   });
   h += '</tbody></table></div>';
   h += '<button type="button" class="cyp-btn btn" id="wk-group" data-a="grpOpen">Group requests as one need</button>';
@@ -1568,7 +1583,7 @@ function decTable(list, can) {
   var h = '<div class="cyp-scroll"><table class="cyp-table cyp-table--dense fin-reqs" id="dec-list"><caption>Requests to decide · ' + list.length + ' · ' + kw(sumR(list)) + '</caption><thead><tr><th scope="col">Request</th><th scope="col">Line</th><th scope="col" class="num">Asked</th><th scope="col" class="num">Recom.</th><th scope="col">Prio</th><th scope="col">Nature</th><th scope="col">Budget</th><th scope="col">Reviewer</th><th class="cyp-table__go" aria-label="Open"></th></tr></thead><tbody>';
   if (!list.length) h += '<tr><td colspan="9">Nothing to decide.</td></tr>';
   list.forEach(function (r) {
-    h += '<tr class="tap cyp-tr--link"' + lk('decOpen', r.id) + '><td><b>' + esc(r.what) + '</b><div class="s m">' + reqNo(r) + ' · ' + esc(secName(r.section)) + (r.status === 'Next week' ? ' · deferred' : '') + (r.grp ? ' · ' + esc(r.grp.name) : '') + '</div></td><td>' + lineCell(r) + '</td><td class="num">' + kw(askedOf(r)) + '</td><td class="num">' + (r.rec != null ? '<b>' + kw(r.rec) + '</b>' : '–') + '</td><td>' + esc(r.prio || '–') + '</td><td>' + (natureOf(r) === 'Exceptional' ? '<span class="cyp-tag cyp-tag--warn">Exceptional</span>' : 'Normal') + '</td><td>' + budStatus(r) + '</td><td class="s">' + (r.revRec === 'no' ? '<span class="cyp-text-danger b">Do not approve.</span> ' : '') + (r.revBy ? esc(r.revJust || r.revNote || 'No comment') : isFixedReq(r) ? 'Fixed cost' : r.selfRev || accAsked(r) ? 'Asked by the Reviewer' : r.plan || r.month ? 'From the plan' : '–') + '</td><td class="cyp-table__go">' + goIcon() + '</td></tr>';
+    h += '<tr class="tap cyp-tr--link"' + lk('decOpen', r.id) + '><td><b>' + esc(r.what) + '</b><div class="s m">' + reqNo(r) + ' · ' + esc(secName(r.section)) + (r.status === 'Next week' ? ' · deferred' : '') + (r.grp ? ' · ' + esc(r.grp.name) : '') + '</div></td><td>' + lineCell(r) + '</td><td class="num">' + kw(askedOf(r)) + '</td><td class="num">' + (r.rec != null ? '<b>' + kw(r.rec) + '</b>' : '–') + '</td><td>' + esc(r.prio || '–') + '</td><td>' + (natureOf(r) === 'Exceptional' ? '<span class="cyp-tag cyp-tag--warn">Exceptional</span>' : 'Routine') + '</td><td>' + budStatus(r) + '</td><td class="s">' + (r.revRec === 'no' ? '<span class="cyp-text-danger b">Do not approve.</span> ' : '') + (r.revBy ? esc(r.revJust || r.revNote || 'No comment') : isFixedReq(r) ? 'Fixed cost' : r.selfRev || accAsked(r) ? 'Asked by the Reviewer' : r.plan || r.month ? 'From the plan' : '–') + '</td><td class="cyp-table__go">' + goIcon() + '</td></tr>';
   });
   h += '</tbody></table></div>';
   var wk = finWeekKey(today()), done = V().requests.filter(function (r) { return (r.status === 'Approved' || r.status === 'Paid' || r.status === 'Next week' || r.status === 'Not approved' || r.status === 'To revise' || (r.status === 'Review' && r.noteBy === 'director')) && r.decidedAt && finWeekKey(finToday(r.decidedAt)) === wk; });
@@ -1876,7 +1891,7 @@ function scrAll() {
 }
 function scrPeople() {
   var v = V(), h = '<main><div class="row" style="align-items:center"><h1>People</h1><button type="button" class="cyp-btn btn" data-a="back">Back</button></div><button type="button" class="cyp-btn cyp-btn--primary btn pri" data-a="personNew">Add a person</button><div class="cyp-rows">';
-  v.users.slice().sort(byPosition).forEach(function (u) { h += '<div class="cyp-row cyp-row--link user"' + lk('personEdit', u.id) + '><span class="cyp-disc cyp-disc--sm cyp-c-blue">' + di('user').replace(' class="cyp-icon"', '') + '</span><div class="cyp-row__text"><b>' + esc(titleOf(u)) + '</b><span>' + esc(u.name) + (u.active === false ? ' (off)' : '') + ' · ' + esc(roleText(u)) + '</span></div>' + goIcon() + '</div>'; });
+  v.users.filter(function (u) { return !u.deleted; }).sort(byPosition).forEach(function (u) { var rb = u.role === 'head' && u.revBy ? ' · reviewed by ' + ({ S: 'Social', C: 'Commercial', E: 'Education' })[u.revBy] : ''; h += '<div class="cyp-row user fin-person" id="pp-' + esc(u.id) + '"><span class="cyp-disc cyp-disc--sm cyp-c-blue">' + di('user').replace(' class="cyp-icon"', '') + '</span><div class="cyp-row__text"><b>' + esc(titleOf(u)) + '</b><span>' + esc(u.name) + (u.active === false ? ' (off)' : '') + ' · ' + esc(roleText(u)) + esc(rb) + '</span></div><div class="fin-acts"><button type="button" class="cyp-btn btn" data-a="personEdit" data-id="' + esc(u.id) + '">' + di('pencil') + 'Change</button>' + (u.id !== S.me.id ? '<button type="button" class="cyp-btn cyp-btn--no btn" data-a="personDel" data-id="' + esc(u.id) + '">' + di('x') + 'Delete</button>' : '') + '</div></div>'; });
   return h + '</div></main>';
 }
 function comWhen(c) { return c.time ? day(finToday(c.time)) + ', ' + new Date(c.time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : ''; }
@@ -1907,7 +1922,7 @@ function modal() {
     var r = finFind(V().requests, x.id); if (!r) { S.ui.modal = null; return ''; }
     var own = r.by === S.me.id || S.me.sections.indexOf(r.section) >= 0, acc = S.me.role === 'accountant';
     h += '<div class="row"><h1>' + reqNo(r) + '</h1>' + pill(r) + '</div><div class="cyp-card card"><div class="wrap"><span class="sec">' + secDisc(r.section) + esc(secName(r.section)) + '</span><span class="cyp-tag tag">' + prioText(r) + '</span>' + (r.emergency ? '<span class="cyp-tag cyp-tag--warn pill em">' + di('triangle-alert') + 'Emergency</span>' : '') + '</div><div class="row"><div class="b">' + esc(r.what) + '</div><div class="b num">' + money(r.amount) + '</div></div>' +
-      '<div class="s">Needed ' + day(r.needed) + ' · asked ' + day(r.created) + ' by ' + esc(r.byName) + (accAsked(r) ? ' (Reviewer, for the section)' : '') + ' · ' + plural(r.notice, 'working day', 'working days') + ' notice · ' + payText(r) + '</div>' + (r.food ? '<div class="s num">' + foodText(r) + '</div>' : '') +
+      '<div class="s">Needed ' + day(r.needed) + ' · asked ' + day(r.created) + ' by ' + esc(byOf(r)) + (accAsked(r) ? ' (Reviewer, for the section)' : '') + ' · ' + plural(r.notice, 'working day', 'working days') + ' notice · ' + payText(r) + '</div>' + (r.food ? '<div class="s num">' + foodText(r) + '</div>' : '') +
       (r.emergency ? '<div class="s" style="color:var(--warn)">' + esc(r.reason) + ': ' + esc(r.why) + '</div>' : '') + (r.purpose ? '<div class="s" id="md-purpose">Why: ' + esc(r.purpose) + '</div>' : '') + (r.planned ? '<div class="s m">Planned: ' + plannedText(r.planned) + '</div>' : '') + '</div>' + (isRows(r) ? '<div class="cyp-card card" id="rq-rows">' + rowsHtml(r) + '</div>' : '') + reqBoxes(r);
     if (r.items && r.month) { h += '<div class="cyp-card card">'; r.items.forEach(function (it) { h += '<div class="row"><div>' + esc(LINE[it.line] ? LINE[it.line].name : it.lineName || it.line) + '</div><div class="num">' + money(it.amount) + '</div></div>'; }); h += '</div>'; }
     var hist = '';
@@ -1948,9 +1963,9 @@ function modal() {
   }
   if (x.type === 'rvsee') {
     var sr = finFind(V().requests, x.id); if (!sr) { S.ui.modal = null; return ''; }
-    var lat = laterOf(sr), canBack = (sr.status === 'Waiting' || sr.status === 'Next week') && sr.revAt && sr.items && (sr.stage === 'S' || sr.stage === 'C' ? finRevParts(S.me).indexOf(sr.stage) >= 0 : finFinal(S.me, sr.section)) && sr.by !== S.me.id;
+    var lat = laterOf(sr), canBack = (sr.status === 'Waiting' || sr.status === 'Next week') && sr.revAt && sr.items && (sr.stage ? finRevParts(S.me).indexOf(sr.stage) >= 0 : finFinal(S.me, sr.section)) && sr.by !== S.me.id;
     h += '<div class="row"><h1>' + reqNo(sr) + '</h1>' + (lat ? '<span class="cyp-tag">Postponed</span>' : pill(sr)) + '</div><div class="b">' + esc(sr.what) + '</div><table class="cyp-table fin-reqs fin-kv" id="sv-kv"><tbody>' +
-      kvT('Department', esc(secName(sr.section))) + kvT('Asked by', esc(sr.byName) + ', ' + day(dayOf(sr.created))) + kvT('Needed', day(sr.needed)) + kvT('Asked', money(askedOf(sr))) +
+      kvT('Department', esc(secName(sr.section))) + kvT('Asked by', esc(byOf(sr)) + ', ' + day(dayOf(sr.created))) + kvT('Needed', day(sr.needed)) + kvT('Asked', money(askedOf(sr))) +
       (sr.rec != null ? kvT('Recommended', '<b>' + money(sr.rec) + '</b>') : '') + (sr.revBy ? kvT('Priority', esc(sr.prio || '–')) + kvT('Nature', natureOf(sr)) + kvT('Advice', sr.revRec === 'no' ? '<span class="cyp-text-danger b">Do not approve</span>' : 'Approve') : '') +
       (sr.revJust ? kvT('Justification', esc(sr.revJust)) : '') + (sr.revNote ? kvT('Comments', esc(sr.revNote)) : '') + (sr.grp ? kvT('Same need', esc(sr.grp.name)) : '') +
       (lat ? kvT('Postponed to', day(lat) + (sr.revLaterNote ? ': ' + esc(sr.revLaterNote) : '')) : '') + (sr.note && sr.status !== 'Waiting' ? kvT('Note', esc(sr.note)) : '') + '</tbody></table>';
@@ -1970,7 +1985,7 @@ function modal() {
     var dr = finFind(V().requests, x.id); if (!dr) { S.ui.modal = null; return ''; }
     var dcan = S.me.role === 'director' && (dr.status === 'Waiting' || dr.status === 'Next week');
     h += '<div class="row"><h1>' + reqNo(dr) + '</h1>' + pill(dr) + '</div><div class="b">' + esc(dr.what) + '</div><table class="cyp-table" id="dc-kv"><tbody>' +
-      kvRow('Department', esc(secName(dr.section)) + (finPart(dr.section) === 'C' ? ' · commercial' : '')) + kvRow('Asked by', esc(dr.byName) + ', ' + day(dr.created)) + kvRow('Needed', day(dr.needed) + ' · ' + payText(dr)) +
+      kvRow('Department', esc(secName(dr.section)) + (finPart(dr.section) === 'C' ? ' · commercial' : '')) + kvRow('Asked by', esc(byOf(dr)) + ', ' + day(dr.created)) + kvRow('Needed', day(dr.needed) + ' · ' + payText(dr)) +
       (dr.rev1 ? kvRow('First review', esc(dr.rev1.by) + ', ' + day(dayOf(dr.rev1.at)) + (dr.rev1.just ? '. ' + esc(dr.rev1.just) : '') + (dr.rev1.note ? '. ' + esc(dr.rev1.note) : '')) : '') + kvRow('Priority', esc(dr.prio || '–')) + kvRow('Nature', natureOf(dr) + (dr.emergency ? '<div class="s m">Short notice: ' + esc(dr.reason) + (dr.why ? ', ' + esc(dr.why) : '') + '</div>' : '')) + (dr.revBy ? kvRow('Advice', dr.revRec === 'no' ? '<span class="cyp-text-danger b">Do not approve</span>' : 'Approve') : '') + (dr.revJust ? kvRow('Justification', esc(dr.revJust)) : '') + (dr.rvItems ? kvRow('Recommended items', dr.items.map(function (it, i) { return esc(it.what) + ' ' + kw(dr.rvItems[i].qty) + ' at ' + kw(dr.rvItems[i].price); }).join(' · ')) : '') + (dr.grp ? kvRow('Same need', esc(dr.grp.name)) : '') +
       (dr.food ? kvRow('Food', foodText(dr)) : '') + (dr.parts && dr.parts.length > 1 ? kvRow('Parts', 'In ' + dr.parts.length + ' parts, from ' + day(dr.parts[0].date) + ' to ' + day(dr.parts[dr.parts.length - 1].date)) : '') +
       (accAsked(dr) ? kvRow('Note', 'Asked by the Reviewer for the section') : isFixedReq(dr) ? kvRow('Note', 'Fixed cost') : '') +
@@ -1999,7 +2014,7 @@ function modal() {
     h += err + '<div class="btns"><button type="button" class="cyp-btn cyp-btn--primary btn pri" id="sc-ok" data-a="scApprove"' + (si === '' ? ' disabled' : '') + '>Approve</button>' + close + '</div>';
   }
   if (x.type === 'monexp') {
-    h += '<h1>Expected funding, ' + MOL[Number(x.id.slice(5)) - 1] + '</h1>' + mField('Expected, in Kwacha', 'me-amt', 'amount', 'number', 'min="0" inputmode="decimal"') + '<div class="s m">Or in euros with the exchange rate:</div>' + mField('In euros', 'me-eur', 'eur', 'number', 'min="0" inputmode="decimal"') + mField('Exchange rate, Kwacha for 1 euro', 'me-rate', 'rate', 'number', 'min="0" step="0.0001" inputmode="decimal"') + err +
+    h += '<h1>Expected funding, ' + MOL[Number(x.id.slice(5)) - 1] + '</h1>' + mField('Expected, in euros', 'me-eur', 'eur', 'number', 'min="0" inputmode="decimal" data-mx="1"') + mField('Exchange rate, Kwacha for 1 euro', 'me-rate', 'rate', 'number', 'min="0" step="0.0001" inputmode="decimal" data-mx="1"') + '<div class="cyp-field field"><div class="lab">Expected, in Kwacha</div><div class="b num" id="me-k">' + meK() + '</div></div>' + err +
       '<div class="btns"><button type="button" class="cyp-btn cyp-btn--primary btn pri" data-a="monExpSave">Save</button>' + close + '</div>';
   }
   if (x.type === 'wkfund') {
@@ -2075,9 +2090,14 @@ function modal() {
       '<div class="cyp-field field"><label for="pe-role">Role</label><select class="cyp-input in" id="pe-role" data-m="role" data-r="1">' + options([['head', 'Section head'], ['accountant', 'Reviewer'], ['director', 'Director'], ['admin', 'Administrator']].concat(m.role === 'viewer' ? [['viewer', 'Can look']] : []), m.role || 'head') + '</select></div>' +
       (deptsOn() && (m.role === 'head' || !m.role) ? '<div class="cyp-field field"><div class="lab">Departments this person asks for</div><div class="cyp-checklist cyp-checklist__rows checks">' + DEPT_CODES.map(function (c) { return '<label><input type="checkbox" data-sec="' + c + '"' + ((m.sections || []).indexOf(c) >= 0 ? ' checked' : '') + '>' + esc(secName(c)) + (finPart(c) === 'C' ? ' (commercial)' : '') + '</label>'; }).join('') + '</div></div>' : '') +
       (m.role === 'accountant' ? '<div class="cyp-field field"><div class="lab">Reviews the requests of</div><div class="cyp-checklist cyp-checklist__rows checks"><label><input type="checkbox" data-rev="S"' + ((m.reviews || []).indexOf('S') >= 0 ? ' checked' : '') + '>The social part</label><label><input type="checkbox" data-rev="C"' + ((m.reviews || []).indexOf('C') >= 0 ? ' checked' : '') + '>The commercial part</label><label><input type="checkbox" data-rev="E"' + ((m.reviews || []).indexOf('E') >= 0 ? ' checked' : '') + '>Education, first review (then the social part)</label></div></div>' : '') +
-      '<div class="cyp-checklist cyp-checklist__rows checks"><label><input type="checkbox" data-m="active"' + (m.active !== false ? ' checked' : '') + '>Can enter</label></div>' +
+      ((m.role || 'head') === 'head' ? '<fieldset class="cyp-choice field" id="pe-revby"><legend>Reviewed by, before the Director</legend><div class="cyp-choice__row">' + [['S', 'Social'], ['C', 'Commercial'], ['E', 'Education']].map(function (q) { var nm = partNamesAll(q[0]); return '<label><input type="radio" name="pe-revby-r" data-a="setRevBy" data-id="' + q[0] + '"' + (m.revBy === q[0] ? ' checked' : '') + '><span>' + q[1] + (nm.length ? ' (' + esc(nm.join(', ')) + ')' : '') + (q[0] === 'E' ? ', then Social' : '') + '</span></label>'; }).join('') + '</div></fieldset>' : '') +
       mField(x.id ? 'New PIN (leave empty to keep the PIN)' : 'PIN', 'pe-pin', 'pin', 'text', 'inputmode="numeric" autocomplete="off"', '4 to 8 numbers. Tell it to the person; they can change it.') + err +
       '<div class="btns"><button type="button" class="cyp-btn cyp-btn--primary btn pri" data-a="personSave">Save</button>' + close + '</div>';
+  }
+  if (x.type === 'pdel') {
+    var pu = finFind(V().users, x.id); if (!pu) { S.ui.modal = null; return ''; }
+    h += '<h1>Delete ' + esc(pu.name) + '?</h1><div>' + esc(titleOf(pu)) + ' · ' + esc(roleText(pu)) + '</div><div class="s m">The person can no longer enter. The requests already made stay, with this name.</div>' + err +
+      '<div class="btns"><button type="button" class="cyp-btn cyp-btn--no btn" id="pd-ok" data-a="personDelOk">Delete</button>' + close + '</div>';
   }
   if (x.type === 'rules') {
     h += '<h1>Rules</h1>' + mField('Working days of notice', 'ru-days', 'noticeDays', 'number', 'min="0" max="30" inputmode="numeric"') +
@@ -2122,6 +2142,7 @@ function render() {
   else {
     var body = (SCREENS[S.ui.tab] || scrMore)();
     if (EXPORTS[S.ui.tab]) { var cut = body.lastIndexOf('</main>'); body = body.slice(0, cut) + '<button type="button" class="cyp-btn btn" data-a="exportPage">' + ic('down') + 'Export in Excel</button>' + body.slice(cut); }
+    if ((S.ui.hist || []).length && body.indexOf('data-a="back"') < 0 && body.indexOf('data-a="revClose"') < 0 && !/Back<\/button>/.test(body)) body = body.replace(/<main([^>]*)>/, function (m0) { return m0 + '<button type="button" class="cyp-btn btn fin-backtop" data-a="back">' + di('chevron-left') + 'Back</button>'; });
     h = head() + body + nav() + modal();
   }
   if (S.ui.viewer) h += '<div class="viewer" role="dialog" aria-modal="true" aria-label="Photo"><div class="vbar"><button type="button" class="cyp-btn btn" data-a="viewZoom" data-id="-1"' + (S.ui.viewer.zoom <= 1 ? ' disabled' : '') + '>Smaller</button><button type="button" class="cyp-btn btn" data-a="viewZoom" data-id="1"' + (S.ui.viewer.zoom >= 5 ? ' disabled' : '') + '>Bigger</button><button type="button" class="cyp-btn btn" data-a="viewClose">Close</button></div><div class="vscroll"><img id="viewer-img" alt="Photo" src="' + S.ui.viewer.src + '" style="width:' + (S.ui.viewer.zoom * 100) + '%"></div></div>';
@@ -2168,6 +2189,7 @@ function sendDemoComments() {
   }).catch(function () { S.comSending = false; return false; });
 }
 function go(tab, back) { if (!back && S.ui.tab && S.ui.tab !== tab) S.ui.hist = (S.ui.hist || []).concat([S.ui.tab]).slice(-20); S.ui.enter = true; S.thanks = ''; S.ui.viewer = null; S.ui.tab = tab; S.ui.err = ''; S.ui.msg = ''; S.ui.modal = null; S.ui.merr = ''; S.ui.keepScroll = false; render(); }
+function meK() { var m = S.ui.m || {}, e = Number(m.eur), r = Number(m.rate); return m.eur !== '' && m.rate !== '' && e >= 0 && r > 0 ? money(Math.round(e * r * 100) / 100) : 'Write the euros and the rate.'; }
 function openModal(x, m) { S.ui.rise = true; S.ui.modal = x; S.ui.m = m || {}; S.ui.merr = ''; render(); }
 function refreshBoxes() {
   var f = S.ui.form, a = document.getElementById('linebox'), b = document.getElementById('noticebox'), s = document.getElementById('sendbtn');
@@ -2613,7 +2635,7 @@ var H = {
     var ppl = multi && anyFood ? Number(f.fpeople) : null;
     var rid = again ? f.editId : uid();
     var res = again ? act('req_edit', { id: f.editId, what: title, amount: amount, line: f.line, lineName: lname, prio: f.prio, needed: f.needed, pay: f.pay, food: fd, parts: parts, items: items, people: ppl, reason: f.reason || '', why: f.why || '', purpose: askWhy() ? f.purpose || '' : undefined, planned: askWhy() ? f.planned || '' : undefined, photo: f.photo || null })
-      : act('req_new', { id: rid, section: f.section, what: title, amount: amount, line: f.line, lineName: lname, prio: f.prio, needed: f.needed, pay: f.pay, food: fd, parts: parts, items: items, people: ppl, reason: f.reason || '', why: f.why || '', purpose: askWhy() ? f.purpose || '' : '', planned: askWhy() ? f.planned || '' : (f.plan || isItemForm() ? 'yes' : ''), deadline: f.deadline || '', plan: f.plan || '', photo: f.photo || null, created: today() });
+      : act('req_new', { id: rid, behalf: f.behalf || '', section: f.section, what: title, amount: amount, line: f.line, lineName: lname, prio: f.prio, needed: f.needed, pay: f.pay, food: fd, parts: parts, items: items, people: ppl, reason: f.reason || '', why: f.why || '', purpose: askWhy() ? f.purpose || '' : '', planned: askWhy() ? f.planned || '' : (f.plan || isItemForm() ? 'yes' : ''), deadline: f.deadline || '', plan: f.plan || '', photo: f.photo || null, created: today() });
     if (!res.ok) { S.ui.err = errText(res.error); return render(); }
     S.ui.form = {};
     var sent = finFind(V().requests, rid), rv = !!sent && sent.status === 'Review';
@@ -2813,10 +2835,10 @@ var H = {
   },
   fundMove: function (el) { var f = S.ui.form, ym = f.fym || today().slice(0, 7), d = finAddDays(ym + '-15', 30 * Number(el.dataset.id)); f.fym = d.slice(0, 7); render(); },
   histMove: function (el) { var now = finWeekKey(today()), k = finAddDays(S.ui.form.hwk || now, 7 * Number(el.dataset.id)); if (k > now) return; S.ui.form.hwk = k; render(); },
-  monExp: function (el) { var ym = el.dataset.id, s = V().settings, e = (s.monthExp || {})[ym], eu = (s.monthEur || {})[ym] || {}; openModal({ type: 'monexp', id: ym }, { amount: e != null ? String(e) : '', eur: eu.eur != null ? String(eu.eur) : '', rate: eu.rate != null ? String(eu.rate) : '' }); },
+  monExp: function (el) { var ym = el.dataset.id, s = V().settings, e = (s.monthExp || {})[ym], eu = (s.monthEur || {})[ym] || {}; openModal({ type: 'monexp', id: ym }, { amount: '', eur: eu.eur != null ? String(eu.eur) : '', rate: eu.rate != null ? String(eu.rate) : '' }); },
   monExpSave: function () {
     var x = S.ui.modal, m = S.ui.m, v = function (q) { return q === '' || q == null ? null : Number(q); }, a = v(m.amount), e = v(m.eur), rt = v(m.rate);
-    if ((e === null) !== (rt === null)) { S.ui.merr = 'Write the euros and the exchange rate, or neither.'; return render(); }
+    if (e === null || rt === null) { S.ui.merr = 'Write the euros and the exchange rate.'; return render(); }
     if ((a !== null && !(a >= 0)) || (e !== null && !(e >= 0)) || (rt !== null && !(rt > 0))) { S.ui.merr = 'Write the amounts as numbers.'; return render(); }
     var res = act('week_money', { kind: 'month', month: x.id, amount: e !== null ? Math.round(e * rt * 100) / 100 : a, eur: e, rate: rt });
     if (!res.ok) S.ui.merr = errText(res.error); else S.ui.modal = null; render();
@@ -2889,11 +2911,15 @@ var H = {
   allReqs: function () { S.ui.form = {}; go('all'); },
   people: function () { go('people'); },
   personNew: function () { openModal({ type: 'person', id: '' }, { role: 'head', sections: [], reviews: [], active: true }); },
-  personEdit: function (el) { var u = finFind(V().users, el.dataset.id); if (!u) return; openModal({ type: 'person', id: u.id }, { name: u.name, title: u.title || '', role: u.role === 'viewer' && u.admin ? 'admin' : u.role, sections: (u.sections || []).slice(), reviews: u.role === 'accountant' ? finRevParts(u) : [], active: u.active !== false, pin: '' }); },
+  personEdit: function (el) { var u = finFind(V().users, el.dataset.id); if (!u) return; openModal({ type: 'person', id: u.id }, { name: u.name, title: u.title || '', role: u.role === 'viewer' && u.admin ? 'admin' : u.role, sections: (u.sections || []).slice(), reviews: u.role === 'accountant' ? finRevParts(u) : [], revBy: u.revBy || '', pin: '' }); },
+  setRevBy: function (el) { S.ui.m.revBy = el.dataset.id; S.ui.merr = ''; render(); },
+  personDel: function (el) { var u = finFind(V().users, el.dataset.id); if (!u) return; openModal({ type: 'pdel', id: u.id }, {}); },
+  personDelOk: function () { var u = finFind(V().users, S.ui.modal.id); if (!u) return; var r = act('user_save', { id: u.id, name: u.name, title: u.title || '', role: u.role, sections: u.sections || [], reviews: u.reviews || [], revBy: u.revBy || '', admin: !!u.admin, deleted: true }); if (!r.ok) { S.ui.merr = errText(r.error); return render(); } S.ui.modal = null; S.thanks = u.name + ' deleted.'; render(); },
   personSave: function () {
-    var m = S.ui.m, x = S.ui.modal, k = m.role || 'head', d = { id: x.id || uid(), name: m.name, title: String(m.title || '').trim(), role: k === 'admin' ? 'viewer' : k, sections: k === 'head' ? m.sections || [] : [], reviews: k === 'accountant' ? m.reviews || [] : [], admin: k === 'admin', active: m.active !== false };
+    var m = S.ui.m, x = S.ui.modal, k = m.role || 'head', d = { id: x.id || uid(), name: m.name, title: String(m.title || '').trim(), role: k === 'admin' ? 'viewer' : k, sections: k === 'head' ? m.sections || [] : [], reviews: k === 'accountant' ? m.reviews || [] : [], revBy: k === 'head' ? m.revBy || '' : '', admin: k === 'admin', active: true };
     if (!String(m.name || '').trim()) { S.ui.merr = 'Write the name.'; return render(); }
     if (k === 'accountant' && !d.reviews.length) { S.ui.merr = 'Choose what this person reviews.'; return render(); }
+    if (k === 'head' && reviewOn() && !d.revBy) { S.ui.merr = 'Choose who reviews the requests of this person.'; return render(); }
     if (!x.id && !pinOk(m.pin)) { S.ui.merr = 'The PIN must be 4 to 8 numbers.'; return render(); }
     if (m.pin && !pinOk(m.pin)) { S.ui.merr = 'The PIN must be 4 to 8 numbers.'; return render(); }
     if (m.pin) { d.salt = uid(); d.cred = credOf(d.salt, m.pin); }
@@ -2975,6 +3001,7 @@ document.addEventListener('click', function (ev) {
   var ta = document.getElementById('cm-text'); if (ta) ta.focus();
 }, true);
 document.addEventListener('click', function (ev) {
+  if (ev.target && ev.target.type === 'date' && ev.target.showPicker) { try { ev.target.showPicker(); } catch (e) {} }
   var el = ev.target.closest('[data-a]'); if (!el) return;
   if (el.tagName === 'A') ev.preventDefault();
   var inner = ev.target.closest('button,a,input,select,textarea,label');
@@ -2995,6 +3022,7 @@ document.addEventListener('input', function (ev) {
     if (t.dataset.b) refreshBoxes();
   } else if (t.dataset.m) {
     S.ui.m[t.dataset.m] = t.type === 'checkbox' ? t.checked : t.value;
+    if (t.dataset.mx) { var mk = document.getElementById('me-k'); if (mk) mk.textContent = meK(); }
     if (t.dataset.r) { if (t.dataset.m === 'section') S.ui.m.line = ''; render(); }
   } else if (t.dataset.sec) {
     var list = S.ui.m.sections || (S.ui.m.sections = []), i = list.indexOf(t.dataset.sec);
@@ -3006,8 +3034,14 @@ document.addEventListener('input', function (ev) {
     if (t.checked && ri < 0) rl.push(t.dataset.rev); if (!t.checked && ri >= 0) rl.splice(ri, 1);
   }
 });
+/* a page drawn again between the press and the release of a tap loses the tap: wait until it ends */
+var tapDown = false, tapWait = false;
+function laterRender() { if (tapDown) tapWait = true; else render(); }
+document.addEventListener('pointerdown', function () { tapDown = true; }, true);
+document.addEventListener('pointerup', function () { tapDown = false; if (tapWait) { tapWait = false; setTimeout(render, 0); } }, true);
+document.addEventListener('pointercancel', function () { tapDown = false; if (tapWait) { tapWait = false; setTimeout(render, 0); } }, true);
 document.addEventListener('change', function (ev) {
-  var t0 = ev.target; if (t0.dataset && t0.dataset.rc) { S.ui.keepScroll = true; render(); return; }
+  var t0 = ev.target; if (t0.dataset && t0.dataset.rc) { S.ui.keepScroll = true; laterRender(); return; }
   var t = ev.target; if (!t.dataset || !t.dataset.photo || !t.files || !t.files[0]) return;
   var kind = t.dataset.photo;
   readPhoto(t.files[0]).then(function (p) {
